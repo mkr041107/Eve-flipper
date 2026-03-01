@@ -83,3 +83,6 @@ frontend/.env.local
 NUL
 tmp_ai_server.log
 tmp_ai_server.err
+
+# Local Discord setup/scratch workspace (do not track)
+discord-local/
