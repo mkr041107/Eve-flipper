@@ -220,3 +220,54 @@ func TestStationConfidenceLabelBuckets(t *testing.T) {
 		t.Fatalf("high bucket = %q, want high", got)
 	}
 }
+
+func TestStationSortProxy_CapsExtremeMarginAndUsesDepthSignals(t *testing.T) {
+	base := &StationTrade{
+		MarginPercent:  50,
+		BuyVolume:      1000,
+		SellVolume:     800,
+		BuyOrderCount:  5,
+		SellOrderCount: 5,
+	}
+	extreme := *base
+	extreme.MarginPercent = 500 // should be capped at 50 internally
+
+	baseScore := stationSortProxy(base)
+	extremeScore := stationSortProxy(&extreme)
+	if baseScore != extremeScore {
+		t.Fatalf("expected capped margin to keep score equal, base=%v extreme=%v", baseScore, extremeScore)
+	}
+
+	lowOrders := *base
+	lowOrders.BuyOrderCount = 1
+	lowOrders.SellOrderCount = 1
+	if stationSortProxy(&lowOrders) >= baseScore {
+		t.Fatalf("fewer orders should reduce score")
+	}
+}
+
+func TestStationNumericHelpers(t *testing.T) {
+	if got := minInt32(3, 7); got != 3 {
+		t.Fatalf("minInt32(3,7)=%d, want 3", got)
+	}
+	if got := minInt32(9, 2); got != 2 {
+		t.Fatalf("minInt32(9,2)=%d, want 2", got)
+	}
+
+	if got := maxInt(3, 7); got != 7 {
+		t.Fatalf("maxInt(3,7)=%d, want 7", got)
+	}
+	if got := maxInt(9, 2); got != 9 {
+		t.Fatalf("maxInt(9,2)=%d, want 9", got)
+	}
+
+	if got := clamp01(-0.5); got != 0 {
+		t.Fatalf("clamp01(-0.5)=%v, want 0", got)
+	}
+	if got := clamp01(1.5); got != 1 {
+		t.Fatalf("clamp01(1.5)=%v, want 1", got)
+	}
+	if got := clamp01(0.42); got != 0.42 {
+		t.Fatalf("clamp01(0.42)=%v, want 0.42", got)
+	}
+}

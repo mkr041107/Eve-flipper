@@ -743,3 +743,144 @@ func TestFindSafeExecutionQuantity_MatchesExhaustiveLargestProfitableQty(t *test
 		}
 	}
 }
+
+func TestNewScanner_InitializesCaches(t *testing.T) {
+	data := &sde.Data{}
+	client := esi.NewClient(nil)
+	scanner := NewScanner(data, client)
+
+	if scanner == nil {
+		t.Fatalf("NewScanner returned nil")
+	}
+	if scanner.SDE != data {
+		t.Fatalf("scanner.SDE mismatch")
+	}
+	if scanner.ESI != client {
+		t.Fatalf("scanner.ESI mismatch")
+	}
+	if scanner.ContractsCache == nil {
+		t.Fatalf("ContractsCache must be initialized")
+	}
+	if scanner.ContractItemsCache == nil {
+		t.Fatalf("ContractItemsCache must be initialized")
+	}
+}
+
+func TestIgnoredSystemSetFromIDs_FiltersInvalidAndDeduplicates(t *testing.T) {
+	got := ignoredSystemSetFromIDs([]int32{0, -5, 30000142, 30000142, 30002187})
+	if got == nil {
+		t.Fatalf("ignoredSystemSetFromIDs returned nil")
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	if !got[30000142] || !got[30002187] {
+		t.Fatalf("expected both valid IDs to be present: %+v", got)
+	}
+}
+
+func TestIgnoredSystemSetFromIDs_AllInvalidReturnsNil(t *testing.T) {
+	if got := ignoredSystemSetFromIDs([]int32{0, -1, -2}); got != nil {
+		t.Fatalf("expected nil for all-invalid ids, got %+v", got)
+	}
+	if got := ignoredSystemSetFromIDs(nil); got != nil {
+		t.Fatalf("expected nil for nil input, got %+v", got)
+	}
+}
+
+func TestFilterSystemDistanceMap_AppliesIgnoredSystems(t *testing.T) {
+	input := map[int32]int{
+		30000142: 0,
+		30000144: 1,
+		30000145: 2,
+	}
+	ignored := map[int32]bool{
+		30000144: true,
+	}
+
+	got := filterSystemDistanceMap(input, ignored)
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	if _, ok := got[30000144]; ok {
+		t.Fatalf("ignored system 30000144 must be removed")
+	}
+	if got[30000142] != 0 || got[30000145] != 2 {
+		t.Fatalf("unexpected filtered values: %+v", got)
+	}
+}
+
+func TestFilterSystemDistanceMap_NoIgnoredReturnsOriginal(t *testing.T) {
+	input := map[int32]int{
+		1: 0,
+		2: 3,
+	}
+	got := filterSystemDistanceMap(input, nil)
+	if len(got) != len(input) {
+		t.Fatalf("len(got) = %d, want %d", len(got), len(input))
+	}
+	if got[1] != 0 || got[2] != 3 {
+		t.Fatalf("unexpected values: %+v", got)
+	}
+}
+
+func TestFetchOrdersAndIndex_EmptyRegions(t *testing.T) {
+	scanner := &Scanner{}
+
+	regions := map[int32]bool{}
+	validSystems := map[int32]int{}
+
+	stream := scanner.fetchOrdersStream(regions, "sell", validSystems)
+	if batch, ok := <-stream; ok {
+		t.Fatalf("expected closed stream for empty regions, got batch: %+v", batch)
+	}
+
+	orders := scanner.fetchOrders(regions, "buy", validSystems)
+	if len(orders) != 0 {
+		t.Fatalf("fetchOrders with empty regions returned %d orders, want 0", len(orders))
+	}
+
+	idx := scanner.fetchAndIndex(
+		ScanParams{},
+		regions, validSystems,
+		regions, validSystems,
+	)
+	if idx == nil {
+		t.Fatalf("fetchAndIndex returned nil")
+	}
+	if len(idx.sellOrders) != 0 || len(idx.buyOrders) != 0 {
+		t.Fatalf("expected no indexed orders, got sell=%d buy=%d", len(idx.sellOrders), len(idx.buyOrders))
+	}
+}
+
+func TestJumpHelpers_UseBFSAndFallback(t *testing.T) {
+	u := graph.NewUniverse()
+	u.AddGate(1, 2)
+	u.AddGate(2, 1)
+	u.AddGate(2, 3)
+	u.AddGate(3, 2)
+	u.SetSecurity(1, 1.0)
+	u.SetSecurity(2, 0.6)
+	u.SetSecurity(3, 0.4)
+
+	scanner := &Scanner{
+		SDE: &sde.Data{
+			Universe: u,
+		},
+	}
+
+	if got := scanner.jumpsBetween(1, 3); got != 2 {
+		t.Fatalf("jumpsBetween(1,3) = %d, want 2", got)
+	}
+	if got := scanner.jumpsBetweenWithSecurity(1, 3, 0.5); got != UnreachableJumps {
+		t.Fatalf("jumpsBetweenWithSecurity should be unreachable with min sec 0.5, got %d", got)
+	}
+
+	bfs := map[int32]int{1: 0, 2: 1}
+	if got := scanner.jumpsBetweenWithBFS(1, 2, bfs, 0); got != 1 {
+		t.Fatalf("jumpsBetweenWithBFS must use BFS distance, got %d", got)
+	}
+	if got := scanner.jumpsBetweenWithBFS(1, 3, bfs, 0); got != 2 {
+		t.Fatalf("jumpsBetweenWithBFS fallback distance = %d, want 2", got)
+	}
+}

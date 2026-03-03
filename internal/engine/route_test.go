@@ -496,3 +496,103 @@ func TestRouteFilterJumpCountForTarget(t *testing.T) {
 		t.Fatalf("with target and zero trade jumps: got %d, want floor 1", got)
 	}
 }
+
+func TestNearestTradeSourceSystems_RespectsIgnoredSystems(t *testing.T) {
+	u := graph.NewUniverse()
+	u.AddGate(1, 2)
+	u.AddGate(2, 1)
+	u.AddGate(2, 3)
+	u.AddGate(3, 2)
+	u.SetSecurity(1, 1.0)
+	u.SetSecurity(2, 1.0)
+	u.SetSecurity(3, 1.0)
+
+	s := &Scanner{
+		SDE: &sde.Data{
+			Universe: u,
+		},
+	}
+
+	idx := &orderIndex{
+		cheapestSell: map[int32]map[int32]orderEntry{
+			2: {34: {Price: 10, VolumeRemain: 100}},
+			3: {34: {Price: 11, VolumeRemain: 100}},
+		},
+		highestBuy: map[int32]map[int32][]orderEntry{},
+	}
+
+	params := RouteParams{
+		AllowEmptyHops:   true,
+		MinRouteSecurity: 0,
+		IgnoredSystemIDs: []int32{3},
+	}
+
+	sources := s.nearestTradeSourceSystems(idx, 1, params)
+	if len(sources) != 2 {
+		t.Fatalf("len(sources) = %d, want 2 (start + system 2)", len(sources))
+	}
+	if sources[0].systemID != 1 || sources[0].emptyJumps != 0 {
+		t.Fatalf("first source = %+v, want start system with 0 empty jumps", sources[0])
+	}
+	if sources[1].systemID != 2 || sources[1].emptyJumps != 1 {
+		t.Fatalf("second source = %+v, want system 2 with 1 empty jump", sources[1])
+	}
+}
+
+func TestNearestTradeSourceSystems_StartIgnoredReturnsNil(t *testing.T) {
+	u := graph.NewUniverse()
+	u.SetSecurity(1, 1.0)
+
+	s := &Scanner{
+		SDE: &sde.Data{
+			Universe: u,
+		},
+	}
+
+	idx := &orderIndex{
+		cheapestSell: map[int32]map[int32]orderEntry{
+			1: {34: {Price: 10, VolumeRemain: 100}},
+		},
+		highestBuy: map[int32]map[int32][]orderEntry{},
+	}
+
+	params := RouteParams{
+		AllowEmptyHops:   true,
+		IgnoredSystemIDs: []int32{1},
+	}
+
+	if got := s.nearestTradeSourceSystems(idx, 1, params); got != nil {
+		t.Fatalf("expected nil sources when start system is ignored, got %+v", got)
+	}
+}
+
+func TestRouteHelpers_CopyVisitAndKey(t *testing.T) {
+	orig := []RouteHop{
+		{SystemID: 1, DestSystemID: 2, TypeID: 34},
+		{SystemID: 2, DestSystemID: 3, TypeID: 35},
+	}
+	copied := copyHops(orig)
+
+	if len(copied) != len(orig) {
+		t.Fatalf("len(copied) = %d, want %d", len(copied), len(orig))
+	}
+	copied[0].SystemID = 999
+	if orig[0].SystemID != 1 {
+		t.Fatalf("copyHops must return independent slice copy")
+	}
+
+	if !routeVisitsSystem(orig, 1) {
+		t.Fatalf("expected route to visit system 1")
+	}
+	if !routeVisitsSystem(orig, 3) {
+		t.Fatalf("expected route to visit system 3")
+	}
+	if routeVisitsSystem(orig, 42) {
+		t.Fatalf("did not expect route to visit system 42")
+	}
+
+	key := routeKey(RouteResult{Hops: orig})
+	if key != "1>2:34|2>3:35" {
+		t.Fatalf("routeKey = %q, want %q", key, "1>2:34|2>3:35")
+	}
+}
