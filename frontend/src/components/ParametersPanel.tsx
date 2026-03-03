@@ -451,6 +451,19 @@ export function ParametersPanel({
                       <option value="single_region">{t("sourceRegionsSingle")}</option>
                     </select>
                   </Field>
+                  {sourceRegionMode === "radius" && (
+                    <Field
+                      label={t("paramsBuy")}
+                      hint={t("sourceRegionsRadiusValueHint")}
+                    >
+                      <NumberInput
+                        value={params.buy_radius}
+                        onChange={(v) => set("buy_radius", Math.round(v))}
+                        min={1}
+                        max={50}
+                      />
+                    </Field>
+                  )}
                   {sourceRegionMode === "single_region" && (
                     <Field label={t("sourceRegionSingle")} hint={t("sourceRegionSingleHint")}>
                       <RegionAutocomplete

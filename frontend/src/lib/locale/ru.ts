@@ -69,6 +69,7 @@ export const ru = {
     sourceRegionsHint: "Откуда покупать: пресет крупных хабов, по Buy Radius от текущей системы или один выбранный регион.",
     sourceRegionsMajorHubs: "Major Trade Hub Regions",
     sourceRegionsRadius: "По Buy Radius",
+    sourceRegionsRadiusValueHint: "Используется только когда режим регионов источника = По Buy Radius.",
     sourceRegionsSingle: "Один регион",
     sourceRegionSingle: "Регион источника",
     sourceRegionSingleHint: "Выберите один конкретный регион источника.",

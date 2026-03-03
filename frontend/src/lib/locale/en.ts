@@ -69,6 +69,7 @@ export const en = {
     sourceRegionsHint: "Where to buy from: major hubs preset, radius from current system, or a single source region.",
     sourceRegionsMajorHubs: "Major Trade Hub Regions",
     sourceRegionsRadius: "By Buy Radius",
+    sourceRegionsRadiusValueHint: "Used only when Source Region(s) mode is set to By Buy Radius.",
     sourceRegionsSingle: "Single Region",
     sourceRegionSingle: "Source Region",
     sourceRegionSingleHint: "Pick one explicit source region.",
