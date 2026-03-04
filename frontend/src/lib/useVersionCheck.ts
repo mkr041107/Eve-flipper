@@ -1,61 +1,68 @@
 import { useEffect, useState } from "react";
+import { getUpdateCheckStatus } from "./api";
 
 interface UseVersionCheckReturn {
   appVersion: string;
   latestVersion: string | null;
   hasUpdate: boolean;
-}
-
-/** Compare two semver-like version strings. Returns true when `latest` is newer than `current`. */
-function isVersionNewer(latest: string, current: string): boolean {
-  const la = latest.split(".").map((n) => parseInt(n, 10) || 0);
-  const ca = current.split(".").map((n) => parseInt(n, 10) || 0);
-  const len = Math.max(la.length, ca.length);
-  for (let i = 0; i < len; i++) {
-    const lv = la[i] ?? 0;
-    const cv = ca[i] ?? 0;
-    if (lv > cv) return true;
-    if (lv < cv) return false;
-  }
-  return false;
+  dismissedForSession: boolean;
+  autoUpdateSupported: boolean;
+  platform: string;
+  releaseURL: string | null;
+  checkError: string | null;
+  checking: boolean;
 }
 
 /**
- * Checks the latest GitHub release on mount (skipped for dev builds)
- * and exposes the current app version, latest remote version, and
- * whether an update is available.
+ * Checks backend update status on mount and exposes current/latest versions.
  */
 export function useVersionCheck(): UseVersionCheckReturn {
-  const appVersion: string = import.meta.env.VITE_APP_VERSION || "dev";
+  const fallbackAppVersion: string = import.meta.env.VITE_APP_VERSION || "dev";
+  const [appVersion, setAppVersion] = useState(fallbackAppVersion);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [hasUpdate, setHasUpdate] = useState(false);
+  const [dismissedForSession, setDismissedForSession] = useState(false);
+  const [autoUpdateSupported, setAutoUpdateSupported] = useState(false);
+  const [platform, setPlatform] = useState("");
+  const [releaseURL, setReleaseURL] = useState<string | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    if (!appVersion || appVersion === "dev") return;
-
     const controller = new AbortController();
-    const fetchLatest = async () => {
+    void (async () => {
       try {
-        const res = await fetch("https://api.github.com/repos/ilyaux/Eve-flipper/releases/latest", {
-          signal: controller.signal,
-        });
-        if (!res.ok) return;
-        const data = await res.json() as { tag_name?: string };
-        if (!data.tag_name) return;
-        const latest = String(data.tag_name).replace(/^v/i, "");
-        const current = String(appVersion).replace(/^v/i, "");
-        setLatestVersion(latest);
-        if (isVersionNewer(latest, current)) {
-          setHasUpdate(true);
+        const data = await getUpdateCheckStatus();
+        if (controller.signal.aborted) return;
+        setAppVersion(data.current_version || fallbackAppVersion);
+        setLatestVersion(data.latest_version ?? null);
+        setHasUpdate(!!data.has_update);
+        setDismissedForSession(!!data.dismissed_for_session);
+        setAutoUpdateSupported(!!data.auto_update_supported);
+        setPlatform(data.platform || "");
+        setReleaseURL(data.release_url ?? null);
+        setCheckError(data.check_error ?? null);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setCheckError(err instanceof Error ? err.message : "Failed to check updates");
+      } finally {
+        if (!controller.signal.aborted) {
+          setChecking(false);
         }
-      } catch {
-        // ignore network / API errors
       }
-    };
-
-    fetchLatest();
+    })();
     return () => controller.abort();
-  }, [appVersion]);
+  }, [fallbackAppVersion]);
 
-  return { appVersion, latestVersion, hasUpdate };
+  return {
+    appVersion,
+    latestVersion,
+    hasUpdate,
+    dismissedForSession,
+    autoUpdateSupported,
+    platform,
+    releaseURL,
+    checkError,
+    checking,
+  };
 }

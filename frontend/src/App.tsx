@@ -19,7 +19,10 @@ import { useGlobalToast } from "./components/Toast";
 import { Modal } from "./components/Modal";
 import { CharacterPopup } from "./components/CharacterPopup";
 import {
+  applyAppUpdate,
+  getUpdateCheckStatus,
   getConfig,
+  skipAppUpdateForSession,
   updateConfig,
   scan,
   scanMultiRegion,
@@ -360,7 +363,15 @@ function App() {
     refreshAuthStatus,
   } = useAuth();
   const characterCount = authStatus.characters?.length ?? (authStatus.logged_in ? 1 : 0);
-  const { appVersion, latestVersion, hasUpdate } = useVersionCheck();
+  const {
+    appVersion,
+    latestVersion,
+    hasUpdate,
+    dismissedForSession,
+    autoUpdateSupported,
+    platform: updatePlatform,
+    releaseURL,
+  } = useVersionCheck();
   const { esiAvailable } = useEsiStatus();
 
   const [radiusResults, setRadiusResults] = useState<FlipResult[]>([]);
@@ -389,6 +400,10 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [showPatrons, setShowPatrons] = useState(false);
   const [showCharacter, setShowCharacter] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateApplying, setUpdateApplying] = useState(false);
+  const [updateApplyError, setUpdateApplyError] = useState("");
+  const [updateApplyStarted, setUpdateApplyStarted] = useState(false);
   const [patrons, setPatrons] = useState<PatronEntry[]>([]);
   const [patronsLoading, setPatronsLoading] = useState(false);
   const [patronsError, setPatronsError] = useState("");
@@ -583,6 +598,81 @@ function App() {
     if (!showPatrons) return;
     void loadPatrons();
   }, [showPatrons, loadPatrons]);
+
+  useEffect(() => {
+    if (!hasUpdate || !latestVersion) return;
+    if (dismissedForSession) return;
+    setShowUpdateModal(true);
+  }, [hasUpdate, latestVersion, dismissedForSession]);
+
+  const handleSkipUpdate = useCallback(() => {
+    setShowUpdateModal(false);
+    if (!latestVersion) return;
+    void skipAppUpdateForSession(latestVersion).catch(() => {});
+  }, [latestVersion]);
+
+  const handleStartUpdate = useCallback(async () => {
+    if (!autoUpdateSupported || updateApplying) return;
+    setUpdateApplying(true);
+    setUpdateApplyStarted(false);
+    setUpdateApplyError("");
+    try {
+      const result = await applyAppUpdate();
+      if (!result.ok) {
+        throw new Error(result.message || t("updateModalFailed"));
+      }
+      setUpdateApplyStarted(true);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : t("updateModalFailed");
+      setUpdateApplyError(reason);
+      setUpdateApplying(false);
+    }
+  }, [autoUpdateSupported, updateApplying, t]);
+
+  useEffect(() => {
+    if (!updateApplying || !updateApplyStarted) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let sawDisconnect = false;
+    let attempts = 0;
+    const maxAttempts = 90;
+
+    const poll = async () => {
+      if (cancelled) return;
+      attempts++;
+      try {
+        const status = await getUpdateCheckStatus();
+        if (cancelled) return;
+
+        const current = (status.current_version || "").trim();
+        const versionChanged = current !== "" && current !== appVersion;
+        const noPendingUpdate = !status.has_update && !status.check_error;
+        if (sawDisconnect || versionChanged || noPendingUpdate) {
+          window.location.reload();
+          return;
+        }
+      } catch {
+        // Old backend can disappear before the updated process starts.
+        sawDisconnect = true;
+      }
+
+      if (attempts >= maxAttempts) {
+        setUpdateApplying(false);
+        setUpdateApplyStarted(false);
+        setUpdateApplyError(t("updateModalFinalizeTimeout"));
+        return;
+      }
+      timer = setTimeout(() => {
+        void poll();
+      }, 1000);
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [updateApplying, updateApplyStarted, appVersion, t]);
 
   // Load config on mount
   useEffect(() => {
@@ -1005,7 +1095,7 @@ function App() {
               </span>
               {hasUpdate && latestVersion && (
                 <a
-                  href="https://github.com/ilyaux/Eve-flipper/releases/latest"
+                  href={releaseURL || "https://github.com/ilyaux/Eve-flipper/releases/latest"}
                   target="_blank"
                   rel="noreferrer"
                   className="hidden sm:inline-flex px-1.5 py-0.5 text-[9px] uppercase tracking-wide rounded-sm bg-eve-warning/10 text-eve-warning border border-eve-warning/40 hover:bg-eve-warning/20 transition-colors"
@@ -1655,6 +1745,71 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* App Update Modal */}
+      <Modal
+        open={showUpdateModal}
+        onClose={() => {
+          if (!updateApplying) handleSkipUpdate();
+        }}
+        title={t("updateModalTitle")}
+        width="max-w-xl"
+      >
+        <div className="p-4 sm:p-5 space-y-3">
+          <p className="text-sm text-eve-text">{t("updateModalBody")}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div className="px-2.5 py-2 rounded-sm border border-eve-border bg-eve-panel/60 text-eve-dim">
+              {t("updateModalCurrent")}: <span className="text-eve-text">{appVersion}</span>
+            </div>
+            <div className="px-2.5 py-2 rounded-sm border border-eve-border bg-eve-panel/60 text-eve-dim">
+              {t("updateModalLatest")}: <span className="text-eve-accent">{latestVersion ?? "-"}</span>
+            </div>
+          </div>
+          <div className="text-[11px] text-eve-dim">
+            {t("updateModalPlatform")}: {autoUpdateSupported ? t("updateModalAuto") : t("updateModalManual")} ({updatePlatform || "unknown"})
+          </div>
+
+          {updateApplyStarted && (
+            <div className="text-xs text-eve-warning border border-eve-warning/40 bg-eve-warning/10 rounded-sm px-2.5 py-2">
+              {t("updateModalWillRestart")}
+            </div>
+          )}
+          {updateApplyError && (
+            <div className="text-xs text-eve-error border border-eve-error/40 bg-eve-error/10 rounded-sm px-2.5 py-2">
+              {t("updateModalFailed")}: {updateApplyError}
+            </div>
+          )}
+
+          <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              className="px-3 py-1.5 rounded-sm border border-eve-border text-eve-dim hover:text-eve-text disabled:opacity-60"
+              onClick={handleSkipUpdate}
+              disabled={updateApplying}
+            >
+              {t("updateModalSkip")}
+            </button>
+            <a
+              href={releaseURL || "https://github.com/ilyaux/Eve-flipper/releases/latest"}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-1.5 rounded-sm border border-eve-border text-eve-dim hover:text-eve-accent"
+            >
+              {t("updateModalOpenRelease")}
+            </a>
+            {autoUpdateSupported && (
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-sm bg-eve-accent text-black font-medium hover:brightness-110 disabled:opacity-60"
+                onClick={() => void handleStartUpdate()}
+                disabled={updateApplying || updateApplyStarted}
+              >
+                {updateApplying ? t("updateModalStarting") : t("updateModalStart")}
+              </button>
+            )}
+          </div>
+        </div>
+      </Modal>
 
       {/* Watchlist Modal */}
       <Modal

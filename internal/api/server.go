@@ -80,6 +80,12 @@ type Server struct {
 
 	authRevisionMu sync.Mutex
 	authRevision   map[string]int64
+
+	appVersion string
+	updateHTTP *http.Client
+
+	updateSkipMu     sync.RWMutex
+	updateSkipByUser map[string]string
 }
 
 // ssoStateEntry holds metadata for a pending SSO login flow.
@@ -621,11 +627,22 @@ func NewServer(cfg *config.Config, esiClient *esi.Client, database *db.DB, ssoCo
 		plexBuildSem:       make(chan struct{}, 1),
 		userIDCookieSecret: loadOrCreateUserCookieSecret(database),
 		authRevision:       make(map[string]int64),
+		appVersion:         "dev",
+		updateHTTP:         &http.Client{Timeout: 45 * time.Second},
+		updateSkipByUser:   make(map[string]string),
 	}
 	if s.wikiRAG != nil {
 		s.wikiRAG.Start(defaultStationAIWikiRepo)
 	}
 	return s
+}
+
+func (s *Server) SetAppVersion(v string) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		v = "dev"
+	}
+	s.appVersion = v
 }
 
 // SetSDE is called when SDE data finishes loading.
@@ -657,6 +674,9 @@ func (s *Server) isReady() bool {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/status", s.handleStatus)
+	mux.HandleFunc("GET /api/update/check", s.handleUpdateCheck)
+	mux.HandleFunc("POST /api/update/skip", s.handleUpdateSkipForSession)
+	mux.HandleFunc("POST /api/update/apply", s.handleUpdateApply)
 	mux.HandleFunc("POST /api/internal/wiki/gollum", s.handleInternalWikiGollumWebhook)
 	mux.HandleFunc("GET /api/config", s.handleGetConfig)
 	mux.HandleFunc("POST /api/config", s.handleSetConfig)

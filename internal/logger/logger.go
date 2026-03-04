@@ -2,9 +2,14 @@ package logger
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"os"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -29,6 +34,13 @@ const (
 )
 
 var useColors = false
+var outputMu sync.Mutex
+var prodLogFile *os.File
+var debugLogFile *os.File
+var prodLogPath string
+var debugLogPath string
+
+var ansiColorRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func init() {
 	// Check if colors are supported
@@ -62,6 +74,100 @@ func colorize(color, text string) string {
 		return text
 	}
 	return color + text + reset
+}
+
+func stripANSI(text string) string {
+	return ansiColorRe.ReplaceAllString(text, "")
+}
+
+// InitFileLogging enables writing terminal logger output to files in baseDir.
+// - eve-flipper-prod.log: mirrors terminal-style logs
+// - eve-flipper-debug.log: full debug sink (also receives standard log.Printf output)
+func InitFileLogging(baseDir string) error {
+	baseDir = strings.TrimSpace(baseDir)
+	if baseDir == "" {
+		baseDir = "."
+	}
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return err
+	}
+
+	newProdPath := filepath.Join(baseDir, "eve-flipper-prod.log")
+	newDebugPath := filepath.Join(baseDir, "eve-flipper-debug.log")
+
+	newProdFile, err := os.OpenFile(newProdPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	newDebugFile, err := os.OpenFile(newDebugPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		_ = newProdFile.Close()
+		return err
+	}
+
+	outputMu.Lock()
+	oldProdFile := prodLogFile
+	oldDebugFile := debugLogFile
+	prodLogFile = newProdFile
+	debugLogFile = newDebugFile
+	prodLogPath = newProdPath
+	debugLogPath = newDebugPath
+	outputMu.Unlock()
+
+	if oldProdFile != nil {
+		_ = oldProdFile.Close()
+	}
+	if oldDebugFile != nil {
+		_ = oldDebugFile.Close()
+	}
+
+	log.SetOutput(io.MultiWriter(os.Stderr, newProdFile, newDebugFile))
+	return nil
+}
+
+// CloseFileLogging flushes/closes file sinks and restores std logger output to stderr.
+func CloseFileLogging() {
+	outputMu.Lock()
+	prod := prodLogFile
+	debug := debugLogFile
+	prodLogFile = nil
+	debugLogFile = nil
+	prodLogPath = ""
+	debugLogPath = ""
+	outputMu.Unlock()
+
+	if prod != nil {
+		_ = prod.Close()
+	}
+	if debug != nil {
+		_ = debug.Close()
+	}
+	log.SetOutput(os.Stderr)
+}
+
+// LogFiles returns absolute paths to active prod/debug log files.
+func LogFiles() (string, string) {
+	outputMu.Lock()
+	defer outputMu.Unlock()
+	return prodLogPath, debugLogPath
+}
+
+func emit(line string) {
+	outputMu.Lock()
+	defer outputMu.Unlock()
+
+	fmt.Print(line)
+	if prodLogFile == nil && debugLogFile == nil {
+		return
+	}
+
+	plain := stripANSI(line)
+	if prodLogFile != nil {
+		_, _ = prodLogFile.WriteString(plain)
+	}
+	if debugLogFile != nil {
+		_, _ = debugLogFile.WriteString(plain)
+	}
 }
 
 func icon(color, symbol, ascii string) string {
@@ -156,7 +262,7 @@ func printLog(level, tag, msg, levelColor, symbol, ascii string) {
 		msgLines = []string{""}
 	}
 	prefix := logPrefix(level, tag, levelColor, symbol, ascii)
-	fmt.Printf("%s %s %s\n", prefix, messageSeparator(), msgLines[0])
+	emit(fmt.Sprintf("%s %s %s\n", prefix, messageSeparator(), msgLines[0]))
 	if len(msgLines) == 1 {
 		return
 	}
@@ -170,7 +276,7 @@ func printLog(level, tag, msg, levelColor, symbol, ascii string) {
 		fitText("", tagWidth),
 	)
 	for _, line := range msgLines[1:] {
-		fmt.Printf("%s %s %s\n", contPrefix, messageSeparator(), line)
+		emit(fmt.Sprintf("%s %s %s\n", contPrefix, messageSeparator(), line))
 	}
 }
 
@@ -189,20 +295,20 @@ func Banner(version string) {
 		width = maxInt(width, visualWidth(line))
 	}
 
-	fmt.Println()
+	emit("\n")
 	if !useColors {
 		horizontal := strings.Repeat("-", width+2)
-		fmt.Printf("  +%s+\n", horizontal)
+		emit(fmt.Sprintf("  +%s+\n", horizontal))
 		for _, line := range lines {
-			fmt.Printf("  | %s |\n", fitText(line, width))
+			emit(fmt.Sprintf("  | %s |\n", fitText(line, width)))
 		}
-		fmt.Printf("  | %s |\n", fitText("Status: ready", width))
-		fmt.Printf("  +%s+\n", horizontal)
-		fmt.Println()
+		emit(fmt.Sprintf("  | %s |\n", fitText("Status: ready", width)))
+		emit(fmt.Sprintf("  +%s+\n", horizontal))
+		emit("\n")
 		return
 	}
 
-	fmt.Println(colorize(cyan+bold, "  ╭"+strings.Repeat("─", width+2)+"╮"))
+	emit(colorize(cyan+bold, "  ╭"+strings.Repeat("─", width+2)+"╮") + "\n")
 	for i, line := range lines {
 		padded := " " + fitText(line, width) + " "
 		lineColor := dim
@@ -214,15 +320,15 @@ func Banner(version string) {
 		default:
 			lineColor = dim
 		}
-		fmt.Println(colorize(cyan+bold, "  │") + colorize(lineColor, padded) + colorize(cyan+bold, "│"))
+		emit(colorize(cyan+bold, "  │") + colorize(lineColor, padded) + colorize(cyan+bold, "│") + "\n")
 	}
 
 	statusText := "● core online   ● scanners ready   ● cache warm"
 	statusLine := " " + colorize(dim, fitText(statusText, width)) + " "
-	fmt.Println(colorize(cyan+bold, "  ├"+strings.Repeat("─", width+2)+"┤"))
-	fmt.Println(colorize(cyan+bold, "  │") + statusLine + colorize(cyan+bold, "│"))
-	fmt.Println(colorize(cyan+bold, "  ╰"+strings.Repeat("─", width+2)+"╯"))
-	fmt.Println()
+	emit(colorize(cyan+bold, "  ├"+strings.Repeat("─", width+2)+"┤") + "\n")
+	emit(colorize(cyan+bold, "  │") + statusLine + colorize(cyan+bold, "│") + "\n")
+	emit(colorize(cyan+bold, "  ╰"+strings.Repeat("─", width+2)+"╯") + "\n")
+	emit("\n")
 }
 
 // Info prints an info message
@@ -247,24 +353,24 @@ func Error(tag, msg string) {
 
 // Loading prints a loading message (without newline initially)
 func Loading(tag, msg string) {
-	fmt.Printf("%s %s %s", logPrefix("LOADING", tag, magenta, "◌", "..."), messageSeparator(), msg)
+	emit(fmt.Sprintf("%s %s %s", logPrefix("LOADING", tag, magenta, "◌", "..."), messageSeparator(), msg))
 }
 
 // Done completes a loading message
 func Done(details string) {
 	if details != "" {
-		fmt.Printf(" %s\n", colorize(dim, details))
+		emit(fmt.Sprintf(" %s\n", colorize(dim, details)))
 	} else {
-		fmt.Println()
+		emit("\n")
 	}
 }
 
 // Server prints the server listening message
 func Server(addr string) {
-	fmt.Println()
+	emit("\n")
 	Success("SERVER", "Listening on "+colorize(cyan+bold, "http://"+addr))
-	fmt.Printf("%s %s %s\n", strings.Repeat(" ", 12), messageSeparator(), colorize(dim, "Press Ctrl+C to stop"))
-	fmt.Println()
+	emit(fmt.Sprintf("%s %s %s\n", strings.Repeat(" ", 12), messageSeparator(), colorize(dim, "Press Ctrl+C to stop")))
+	emit("\n")
 }
 
 // Section prints a section header
@@ -275,14 +381,14 @@ func Section(title string) {
 	}
 	cleanTitle = strings.ToUpper(cleanTitle)
 	if useColors {
-		fmt.Printf("\n%s %s %s\n", colorize(cyan, "┌"), colorize(white+bold, cleanTitle), separator())
+		emit(fmt.Sprintf("\n%s %s %s\n", colorize(cyan, "┌"), colorize(white+bold, cleanTitle), separator()))
 		return
 	}
-	fmt.Printf("\n%s %s %s\n", "+", cleanTitle, separator())
+	emit(fmt.Sprintf("\n%s %s %s\n", "+", cleanTitle, separator()))
 }
 
 // Stats prints statistics in a nice format
 func Stats(label string, value interface{}) {
 	labelCol := fitText(strings.TrimSpace(label), 18)
-	fmt.Printf("    %s %s %v\n", icon(dim, "•", "-"), colorize(dim, labelCol+":"), colorize(white, fmt.Sprint(value)))
+	emit(fmt.Sprintf("    %s %s %v\n", icon(dim, "•", "-"), colorize(dim, labelCol+":"), colorize(white, fmt.Sprint(value))))
 }

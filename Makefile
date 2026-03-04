@@ -8,7 +8,13 @@ LDFLAGS   := -s -w -X main.version=$(VERSION)
 ## build: build frontend + backend into a single binary
 build: frontend
 	@mkdir -p $(BUILD_DIR)
-	set -a; [ -f .env ] && . .env; set +a; \
+	set -a; \
+	if [ -f .env ]; then \
+		tr -d '\r' < .env > .env.__tmp; \
+		. ./.env.__tmp; \
+		rm -f .env.__tmp; \
+	fi; \
+	set +a; \
 	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME) .
 
 ## run: build and run
@@ -26,7 +32,13 @@ frontend:
 ## cross: build release binaries for Windows, Linux, macOS (amd64 + arm64)
 cross: frontend
 	@mkdir -p $(BUILD_DIR)
-	set -a; [ -f .env ] && . .env; set +a; \
+	set -a; \
+	if [ -f .env ]; then \
+		tr -d '\r' < .env > .env.__tmp; \
+		. ./.env.__tmp; \
+		rm -f .env.__tmp; \
+	fi; \
+	set +a; \
 	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-windows-amd64.exe .; \
 	GOOS=linux   GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-linux-amd64 .; \
 	GOOS=linux   GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME)-linux-arm64 .; \

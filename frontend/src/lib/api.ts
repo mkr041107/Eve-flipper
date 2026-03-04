@@ -151,6 +151,48 @@ export async function getStatus(): Promise<AppStatus> {
   return handleResponse<AppStatus>(res);
 }
 
+export interface UpdateCheckStatus {
+  current_version: string;
+  latest_version?: string;
+  has_update: boolean;
+  dismissed_for_session?: boolean;
+  auto_update_supported: boolean;
+  release_url?: string;
+  published_at?: string;
+  platform: string;
+  asset_name?: string;
+  check_error?: string;
+}
+
+export interface UpdateApplyResponse {
+  ok: boolean;
+  message?: string;
+  from_version?: string;
+  to_version?: string;
+  asset_name?: string;
+}
+
+export async function getUpdateCheckStatus(): Promise<UpdateCheckStatus> {
+  const res = await fetch(`${BASE}/api/update/check`);
+  return handleResponse<UpdateCheckStatus>(res);
+}
+
+export async function applyAppUpdate(): Promise<UpdateApplyResponse> {
+  const res = await fetch(`${BASE}/api/update/apply`, {
+    method: "POST",
+  });
+  return handleResponse<UpdateApplyResponse>(res);
+}
+
+export async function skipAppUpdateForSession(version: string): Promise<{ ok: boolean; version: string }> {
+  const res = await fetch(`${BASE}/api/update/skip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
+  });
+  return handleResponse<{ ok: boolean; version: string }>(res);
+}
+
 export async function getConfig(): Promise<AppConfig> {
   const res = await fetch(`${BASE}/api/config`);
   return handleResponse<AppConfig>(res);

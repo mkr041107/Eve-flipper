@@ -90,11 +90,32 @@ func main() {
 	// when the file is absent, and never overrides existing OS env vars.
 	loadDotEnv()
 
+	// File logs live next to the running binary (release/build folder).
+	logDir := "."
+	if exePath, err := os.Executable(); err == nil {
+		if exeDir := filepath.Dir(exePath); exeDir != "" {
+			logDir = exeDir
+		}
+	}
+	if err := logger.InitFileLogging(logDir); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] file logging init failed: %v\n", err)
+	} else {
+		defer logger.CloseFileLogging()
+	}
+
 	port := flag.Int("port", 13370, "HTTP server port")
 	host := flag.String("host", "127.0.0.1", "Host to bind to (use 0.0.0.0 to allow LAN/remote access)")
 	flag.Parse()
 
 	logger.Banner(version)
+	if prodLog, debugLog := logger.LogFiles(); prodLog != "" || debugLog != "" {
+		if prodLog != "" {
+			logger.Info("LOG", "Prod log file: "+prodLog)
+		}
+		if debugLog != "" {
+			logger.Info("LOG", "Debug log file: "+debugLog)
+		}
+	}
 
 	wd, _ := os.Getwd()
 	dataDir := filepath.Join(wd, "data")
@@ -141,6 +162,7 @@ func main() {
 	sessions := auth.NewSessionStore(database.SqlDB())
 
 	srv := api.NewServer(cfg, esiClient, database, ssoConfig, sessions)
+	srv.SetAppVersion(version)
 
 	// Load SDE in background
 	go func() {
