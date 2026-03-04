@@ -1,7 +1,7 @@
 # EVE Flipper
 
-EVE Flipper is a local-first market analysis platform for EVE Online traders.  
-It combines real-time ESI data, historical market behavior, and execution-aware math to surface actionable opportunities across station trading, regional arbitrage, contracts, routes, industry, and PLEX.
+EVE Flipper is a local-first market analysis platform for EVE Online traders.
+It combines live ESI order books, historical market behavior, and execution-aware math to surface actionable opportunities across multiple trading workflows.
 
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
@@ -12,50 +12,42 @@ It combines real-time ESI data, historical market behavior, and execution-aware 
 [![Last Commit](https://img.shields.io/github/last-commit/ilyaux/Eve-flipper)](https://github.com/ilyaux/Eve-flipper/commits/master)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/rnR2bw6XXX)
 
-## Core Capabilities
+## What It Includes
 
-### Trading Scanners
-- `Radius Scan`: local buy/sell opportunities within jump constraints.
-- `Region Arbitrage`: cross-region spreads and hauling candidates.
-- `Route Trading`: multi-hop route search with cross-region support.
-- `Station Trading`: same-station opportunities with liquidity and risk metrics.
-- `Contract Scanner`: contract arbitrage in two modes:
-  - `Instant liquidation` (buy now, liquidate now)
-  - `Horizon mode` (expected profit with hold days and confidence target)
+### Trading Tabs
+- `Flipper (Radius)`: local buy/sell opportunities with execution-aware metrics.
+- `Regional Trade`: cross-region day-trade scanner with target marketplace controls and grouped output.
+- `Contract Arbitrage`: contract valuation and liquidation scenarios.
+- `Route`: multi-hop route builder with ISK/jump constraints.
+- `Station Trading`: same-station scanner with liquidity/risk filters.
+- `Industry`: production planning and industry ledger workflows.
+- `War Tracker`: demand/activity view for region-level opportunities.
+- `PLEX+`: PLEX analytics and profitability dashboards.
 
-### Execution and Risk
-- `Execution Plan`: order-book walk simulation (expected price, slippage, fillability).
-- Correct partial-fill accounting (`total_isk` reflects fillable quantity when full fill is impossible).
-- Scam/risk signals for trade quality filtering.
+### Core UX and Analysis Features
+- `Execution-aware pricing`: expected fill price, slippage, fillability, and real profit fields.
+- `System blacklist`: ignore selected systems globally in scan parameters.
+- `Batch Builder`: build same-route cargo manifests from a selected deal.
+- `Auto-refresh`: cache-aware refresh for Flipper and Regional tabs.
+- `Player structures support`: optional structure inclusion (requires EVE login and access).
+- `Watchlist + Scan History`: persist and revisit tracked items and previous scans.
 
-### PLEX and Industry
-- `PLEX Dashboard`: arbitrage paths, SP-farm math, depth, indicators, cross-hub comparison.
-- Hardened PLEX backend flow: in-flight request deduplication and stale-cache fallback during ESI instability.
-- `Industry Chain Optimizer`: buy-vs-build decomposition with material tree and system-aware costs.
-
-### Character and Portfolio
-- EVE SSO integration for wallet/orders/transactions/structures.
-- Portfolio analytics and optimization modules.
-- Undercut monitoring and station-level context.
+### Local-First Runtime
+- Single backend binary with embedded frontend.
+- Default bind: `127.0.0.1:13370`.
+- SQLite persistence for config, history, and local state.
 
 ## Screenshots
 
-| Station Trading | Route Trading | Radius Scan |
+| Station Trading | Route Trading | Flipper (Radius) |
 |---|---|---|
 | ![Station Trading](assets/screenshot-station.png) | ![Route Trading](assets/screenshot-routes.png) | ![Radius Scan](assets/screenshot-radius.png) |
-
-## Architecture
-
-- Backend: `Go` (`net/http`), SQLite persistence, ESI client with caching/rate-limiting.
-- Frontend: `React + TypeScript + Vite`.
-- Distribution model: single backend binary with embedded frontend assets.
-- Default runtime: local bind (`127.0.0.1:13370`).
 
 ## Quick Start
 
 ### Option 1: Release binaries
 
-Download the latest build from:
+Download the latest build:
 - https://github.com/ilyaux/Eve-flipper/releases
 
 Run the binary and open:
@@ -102,11 +94,15 @@ make run
 | `--host` | `127.0.0.1` | Bind address (`0.0.0.0` for LAN/remote access) |
 | `--port` | `13370` | HTTP port |
 
-## Local SSO Setup (for source builds)
+## EVE SSO (Optional)
 
-SSO is disabled unless credentials are provided.
+Many scanners work without login, but these features require EVE SSO:
+- Character-aware fees/skills autofill
+- Character orders/assets-based workflows
+- Player structure market data and structure names
+- Corporation dashboards/endpoints
 
-Create `.env` in repo root:
+Create `.env` in repo root for local/source builds:
 
 ```env
 ESI_CLIENT_ID=your-client-id
@@ -155,8 +151,8 @@ npm -C frontend run build
 
 ## Security Notes
 
-- By default, the server listens only on localhost.
-- ESI credentials are never required for non-SSO features.
+- By default, server listens only on localhost.
+- ESI credentials are optional for non-SSO features.
 - If exposed beyond localhost (`--host 0.0.0.0`), use your own network hardening (firewall/reverse proxy/TLS).
 
 ## Contributing
@@ -170,5 +166,5 @@ MIT License. See `LICENSE`.
 
 ## Disclaimer
 
-EVE Flipper is an independent third-party project and is not affiliated with CCP Games.  
+EVE Flipper is an independent third-party project and is not affiliated with CCP Games.
 EVE Online and related trademarks are property of CCP hf.
