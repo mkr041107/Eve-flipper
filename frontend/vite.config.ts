@@ -24,5 +24,51 @@ export default defineConfig({
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
     outDir: "dist",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, "/");
+
+          if (normalizedId.includes("/src/components/industry/") || normalizedId.endsWith("/src/components/IndustryTab.tsx")) {
+            return "feature-industry";
+          }
+          if (
+            normalizedId.endsWith("/src/components/StationTrading.tsx") ||
+            normalizedId.endsWith("/src/components/StationTradingExecutionCalculator.tsx") ||
+            normalizedId.includes("/src/components/character-popup/")
+          ) {
+            return "feature-station";
+          }
+          if (normalizedId.includes("/src/components/plex-tab/") || normalizedId.endsWith("/src/components/PlexTab.tsx")) {
+            return "feature-plex";
+          }
+          if (
+            normalizedId.endsWith("/src/components/ContractResultsTable.tsx") ||
+            normalizedId.endsWith("/src/components/ContractParametersPanel.tsx") ||
+            normalizedId.endsWith("/src/components/ContractDetailsPopup.tsx")
+          ) {
+            return "feature-contracts";
+          }
+          if (normalizedId.endsWith("/src/components/RouteBuilder.tsx")) {
+            return "feature-route";
+          }
+
+          if (!normalizedId.includes("/node_modules/")) return;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(normalizedId)) {
+            return "vendor-react";
+          }
+          if (/[\\/]node_modules[\\/](@tanstack|react-window|lightweight-charts)[\\/]/.test(normalizedId)) {
+            return "vendor-data";
+          }
+          if (/[\\/]node_modules[\\/](@radix-ui|lucide-react|cmdk)[\\/]/.test(normalizedId)) {
+            return "vendor-ui";
+          }
+          if (/[\\/]node_modules[\\/](@tauri-apps)[\\/]/.test(normalizedId)) {
+            return "vendor-runtime";
+          }
+          return "vendor-misc";
+        },
+      },
+    },
   },
 });

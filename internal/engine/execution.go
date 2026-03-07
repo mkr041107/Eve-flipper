@@ -7,6 +7,16 @@ import (
 	"eve-flipper/internal/esi"
 )
 
+func clampInt64ToInt32(v int64) int32 {
+	if v <= 0 {
+		return 0
+	}
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(v)
+}
+
 // ExecutionPlanRequest is the input for computing an execution plan (slippage simulation).
 type ExecutionPlanRequest struct {
 	TypeID     int32
@@ -50,10 +60,10 @@ func ComputeExecutionPlan(orders []esi.MarketOrder, quantity int32, isBuy bool) 
 	// Aggregate volume at each price level (same price = sum volume)
 	type level struct {
 		price  float64
-		volume int32
+		volume int64
 	}
-	levelMap := make(map[float64]int32)
-	filteredDepth := int32(0)
+	levelMap := make(map[float64]int64)
+	filteredDepth := int64(0)
 	for _, o := range orders {
 		// Buy simulation consumes sell orders (asks), sell simulation consumes buy orders (bids).
 		if isBuy && o.IsBuyOrder {
@@ -62,8 +72,12 @@ func ComputeExecutionPlan(orders []esi.MarketOrder, quantity int32, isBuy bool) 
 		if !isBuy && !o.IsBuyOrder {
 			continue
 		}
-		levelMap[o.Price] += o.VolumeRemain
-		filteredDepth += o.VolumeRemain
+		if o.VolumeRemain <= 0 {
+			continue
+		}
+		vol := int64(o.VolumeRemain)
+		levelMap[o.Price] += vol
+		filteredDepth += vol
 	}
 	// If side-filter removed everything, return empty result rather than
 	// silently using wrong-side orders which would produce incorrect prices.
@@ -89,14 +103,16 @@ func ComputeExecutionPlan(orders []esi.MarketOrder, quantity int32, isBuy bool) 
 
 	out.BestPrice = levels[0].price
 	out.TotalDepth = 0
+	totalDepthAcc := int64(0)
 	for _, lv := range levels {
-		out.TotalDepth += lv.volume
+		totalDepthAcc += lv.volume
 	}
+	out.TotalDepth = clampInt64ToInt32(totalDepthAcc)
 
 	// Walk book and fill Q
-	remaining := quantity
+	remaining := int64(quantity)
 	var costSum float64
-	var filled int32
+	var filled int64
 
 	for _, lv := range levels {
 		if remaining <= 0 {
@@ -111,16 +127,16 @@ func ComputeExecutionPlan(orders []esi.MarketOrder, quantity int32, isBuy bool) 
 		filled += vol
 		out.DepthLevels = append(out.DepthLevels, DepthLevel{
 			Price:        lv.price,
-			Volume:       lv.volume,
-			VolumeFilled: vol,
+			Volume:       clampInt64ToInt32(lv.volume),
+			VolumeFilled: clampInt64ToInt32(vol),
 		})
 	}
 
 	// Cumulative for display
-	cum := int32(0)
+	cum := int64(0)
 	for i := range out.DepthLevels {
-		cum += out.DepthLevels[i].VolumeFilled
-		out.DepthLevels[i].Cumulative = cum
+		cum += int64(out.DepthLevels[i].VolumeFilled)
+		out.DepthLevels[i].Cumulative = clampInt64ToInt32(cum)
 	}
 
 	out.CanFill = remaining <= 0
@@ -142,7 +158,7 @@ func ComputeExecutionPlan(orders []esi.MarketOrder, quantity int32, isBuy bool) 
 	// excessive price impact. This aligns with the same principle used in
 	// OptimalSlicesVolume (impact.go): n* = ceil(Q / (targetPct × Depth)).
 	const targetPct = 0.05 // max 5% of book depth per slice
-	sliceSize := float64(out.TotalDepth) * targetPct
+	sliceSize := float64(totalDepthAcc) * targetPct
 	if sliceSize < 10 {
 		sliceSize = 10 // floor: even for illiquid items, at least 10 units per slice
 	}

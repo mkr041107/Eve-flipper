@@ -187,6 +187,7 @@ async function streamNdjson<T>(
       }
     }
   }
+  buffer += decoder.decode();
 
   // Handle remaining buffer
   if (buffer.trim()) {

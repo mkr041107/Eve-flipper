@@ -119,6 +119,23 @@ func TestComputeExecutionPlan_SamePriceAggregated(t *testing.T) {
 	}
 }
 
+func TestComputeExecutionPlan_TotalDepthClampedNoOverflow(t *testing.T) {
+	orders := []esi.MarketOrder{
+		{Price: 100, VolumeRemain: math.MaxInt32},
+		{Price: 100, VolumeRemain: math.MaxInt32},
+	}
+	got := ComputeExecutionPlan(orders, math.MaxInt32, true)
+	if got.TotalDepth != math.MaxInt32 {
+		t.Fatalf("TotalDepth = %v, want clamp to %v", got.TotalDepth, math.MaxInt32)
+	}
+	if got.TotalDepth <= 0 {
+		t.Fatalf("TotalDepth should remain positive after large aggregation")
+	}
+	if !got.CanFill {
+		t.Fatalf("CanFill = false, want true for quantity <= available depth")
+	}
+}
+
 func TestComputeExecutionPlan_WrongSideReturnsEmpty(t *testing.T) {
 	// Buy simulation given only buy orders (wrong side) → should return empty.
 	buyOrders := []esi.MarketOrder{

@@ -114,6 +114,8 @@ const stationAIRuntimeTopItems = 5
 const stationAIRuntimeTxnWindowDays = 30
 const stationAIHistoryMaxMessages = 16
 const stationAIStreamHTTPTimeout = 12 * time.Minute
+const stationAIProviderResponseMaxBodyBytes int64 = 4 * 1024 * 1024
+const stationAIProviderErrorMaxBodyBytes int64 = 64 * 1024
 const stationAIWikiWebhookSecretEnv = "STATION_AI_WIKI_WEBHOOK_SECRET"
 const stationAIWikiWebhookRefreshTimeout = 2 * time.Minute
 const stationAIMaxTokensLimit = 1_000_000
@@ -7627,6 +7629,21 @@ func buildStationAIMessages(systemPrompt string, history []stationAIHistoryMessa
 	return messages
 }
 
+func readBodyWithLimit(r io.Reader, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		return nil, fmt.Errorf("invalid max body size: %d", maxBytes)
+	}
+	limited := io.LimitReader(r, maxBytes+1)
+	body, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("response body exceeds %d bytes", maxBytes)
+	}
+	return body, nil
+}
+
 func (s *Server) stationAIOpenRouterChatOnce(
 	ctx context.Context,
 	req stationAIChatRequestPayload,
@@ -7664,7 +7681,7 @@ func (s *Server) stationAIOpenRouterChatOnce(
 	}
 	defer resp.Body.Close()
 
-	rawResp, readErr := io.ReadAll(resp.Body)
+	rawResp, readErr := readBodyWithLimit(resp.Body, stationAIProviderResponseMaxBodyBytes)
 	if readErr != nil {
 		return stationAIProviderReply{}, fmt.Errorf("failed to read ai provider response: %w", readErr)
 	}
@@ -8833,7 +8850,11 @@ func (s *Server) handleAuthStationAIChatStream(w http.ResponseWriter, r *http.Re
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		rawResp, _ := io.ReadAll(resp.Body)
+		rawResp, readErr := readBodyWithLimit(resp.Body, stationAIProviderErrorMaxBodyBytes)
+		if readErr != nil {
+			writeErr("ai provider error")
+			return
+		}
 		errMsg := "ai provider error"
 		var errBody struct {
 			Error struct {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,23 @@ func TestHandleGetConfig_ReturnsConfig(t *testing.T) {
 	}
 	if out.SystemName != "Jita" || out.CargoCapacity != 10000 {
 		t.Errorf("config = %+v", out)
+	}
+}
+
+func TestReadBodyWithLimit(t *testing.T) {
+	t.Parallel()
+
+	body, err := readBodyWithLimit(strings.NewReader("abc"), 3)
+	if err != nil {
+		t.Fatalf("readBodyWithLimit exact size failed: %v", err)
+	}
+	if string(body) != "abc" {
+		t.Fatalf("body = %q, want %q", string(body), "abc")
+	}
+
+	_, err = readBodyWithLimit(strings.NewReader("abcd"), 3)
+	if err == nil {
+		t.Fatalf("expected size-limit error for oversized body")
 	}
 }
 
