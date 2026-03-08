@@ -31,6 +31,41 @@ jobs:
           npm ci
           npm run build
 
+      - name: Embed Windows version info
+        run: |
+          go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="${VERSION%%-*}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+          MAJOR="${MAJOR:-1}"; MINOR="${MINOR:-0}"; PATCH="${PATCH:-0}"
+
+          cat > versioninfo_ci.json << EOF
+          {
+            "FixedFileInfo": {
+              "FileVersion":    { "Major": ${MAJOR}, "Minor": ${MINOR}, "Patch": ${PATCH}, "Build": 0 },
+              "ProductVersion": { "Major": ${MAJOR}, "Minor": ${MINOR}, "Patch": ${PATCH}, "Build": 0 },
+              "FileFlagsMask": "3f", "FileFlags": "00",
+              "FileOS": "040004", "FileType": "01", "FileSubType": "00"
+            },
+            "StringFileInfo": {
+              "CompanyName":      "Eve Flipper Contributors",
+              "FileDescription":  "EVE Online Market Trading Tool",
+              "FileVersion":      "${BASE}",
+              "InternalName":     "eve-flipper",
+              "LegalCopyright":   "Copyright 2026 Eve Flipper Contributors",
+              "OriginalFilename": "eve-flipper.exe",
+              "ProductName":      "Eve Flipper",
+              "ProductVersion":   "${BASE}"
+            },
+            "VarFileInfo": { "Translation": { "LangID": "0409", "CharsetID": "04B0" } },
+            "IconPath":     "assets/logo_black.ico",
+            "ManifestPath": "assets/app.manifest"
+          }
+          EOF
+
+          $(go env GOPATH)/bin/goversioninfo -o resource_windows_amd64.syso versioninfo_ci.json
+
       - name: Cross-compile classic binaries
         env:
           ESI_CLIENT_ID: ${{ secrets.ESI_CLIENT_ID }}
@@ -140,6 +175,43 @@ jobs:
         run: |
           npm ci
           npm run build:wails
+
+      - name: Embed Windows version info
+        if: matrix.goos == 'windows'
+        shell: bash
+        run: |
+          go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          BASE="${VERSION%%-*}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+          MAJOR="${MAJOR:-1}"; MINOR="${MINOR:-0}"; PATCH="${PATCH:-0}"
+
+          cat > versioninfo_ci.json << EOF
+          {
+            "FixedFileInfo": {
+              "FileVersion":    { "Major": ${MAJOR}, "Minor": ${MINOR}, "Patch": ${PATCH}, "Build": 0 },
+              "ProductVersion": { "Major": ${MAJOR}, "Minor": ${MINOR}, "Patch": ${PATCH}, "Build": 0 },
+              "FileFlagsMask": "3f", "FileFlags": "00",
+              "FileOS": "040004", "FileType": "01", "FileSubType": "00"
+            },
+            "StringFileInfo": {
+              "CompanyName":      "Eve Flipper Contributors",
+              "FileDescription":  "EVE Online Market Trading Tool",
+              "FileVersion":      "${BASE}",
+              "InternalName":     "eve-flipper",
+              "LegalCopyright":   "Copyright 2026 Eve Flipper Contributors",
+              "OriginalFilename": "eve-flipper-wails.exe",
+              "ProductName":      "Eve Flipper",
+              "ProductVersion":   "${BASE}"
+            },
+            "VarFileInfo": { "Translation": { "LangID": "0409", "CharsetID": "04B0" } },
+            "IconPath":     "assets/logo_black.ico",
+            "ManifestPath": "assets/app.manifest"
+          }
+          EOF
+
+          $(go env GOPATH)/bin/goversioninfo -o resource_windows_amd64.syso versioninfo_ci.json
 
       - name: Build Wails binary
         shell: bash
