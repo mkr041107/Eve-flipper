@@ -395,6 +395,7 @@ func startUpdaterScript(goos, scriptPath string) error {
 		// Using `start` here can spawn an extra console window and leave
 		// a noisy "batch file cannot be found" shell behind on some hosts.
 		cmd = exec.Command("cmd", "/C", scriptPath)
+		hideConsoleWindow(cmd)
 	} else {
 		cmd = exec.Command("/bin/sh", scriptPath)
 	}

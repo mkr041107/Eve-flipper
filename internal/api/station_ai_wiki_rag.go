@@ -280,6 +280,7 @@ func stationAIRunGit(ctx context.Context, args ...string) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(timeoutCtx, "git", args...)
+	hideConsoleWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
