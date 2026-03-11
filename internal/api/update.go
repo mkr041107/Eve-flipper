@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -400,7 +399,6 @@ func startUpdaterScript(goos, scriptPath string) error {
 	} else {
 		cmd = exec.Command("/bin/sh", scriptPath)
 	}
-	log.Printf("[UPDATE] Launching updater script: %s", scriptPath)
 	return cmd.Start()
 }
 
