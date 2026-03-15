@@ -34,6 +34,7 @@ import (
 	"eve-flipper/internal/db"
 	"eve-flipper/internal/engine"
 	"eve-flipper/internal/esi"
+	"eve-flipper/internal/gankcheck"
 	"eve-flipper/internal/sde"
 	"eve-flipper/internal/zkillboard"
 	"golang.org/x/sync/singleflight"
@@ -75,6 +76,9 @@ type Server struct {
 
 	// Corporation demo provider (initialized on SDE load).
 	demoCorpProvider *corp.DemoCorpProvider
+
+	// Gank check route danger analyzer (initialized on SDE load).
+	ganker *gankcheck.Checker
 
 	userIDCookieSecret []byte
 
@@ -685,6 +689,9 @@ func (s *Server) SetSDE(data *sde.Data) {
 	// Initialize corporation demo provider
 	s.demoCorpProvider = corp.NewDemoCorpProvider()
 
+	// Initialize gank check route analyzer
+	s.ganker = gankcheck.NewChecker(zkillboard.NewClient(), s.esi, data, data.Universe)
+
 	s.ready = true
 }
 
@@ -791,6 +798,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/corp/orders", s.handleCorpOrders)
 	mux.HandleFunc("GET /api/corp/industry", s.handleCorpIndustry)
 	mux.HandleFunc("GET /api/corp/mining", s.handleCorpMining)
+	// Gank Check
+	mux.HandleFunc("GET /api/gankcheck", s.handleGankCheck)
+	mux.HandleFunc("GET /api/gankcheck/detail", s.handleGankCheckDetail)
+	mux.HandleFunc("GET /api/gankcheck/batch", s.handleGankCheckBatch)
 	return corsMiddleware(s.userScopeMiddleware(mux))
 }
 

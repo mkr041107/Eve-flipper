@@ -252,3 +252,50 @@ func (u *Universe) SystemsInRegions(regions map[int32]bool) map[int32]int {
 	}
 	return out
 }
+
+// GetPath returns the list of system IDs from origin to dest (inclusive),
+// using only systems with security >= minSecurity. Returns nil if no path exists.
+func (u *Universe) GetPath(from, to int32, minSecurity float64) []int32 {
+	if from == to {
+		return []int32{from}
+	}
+	parent := make(map[int32]int32, 256)
+	parent[from] = from
+
+	queue := []int32{from}
+	head := 0
+
+	for head < len(queue) {
+		current := queue[head]
+		head++
+
+		for _, neighbor := range u.Adj[current] {
+			if _, visited := parent[neighbor]; visited {
+				continue
+			}
+			if minSecurity > 0 {
+				if sec, ok := u.SystemSecurity[neighbor]; !ok || sec < minSecurity {
+					continue
+				}
+			}
+			parent[neighbor] = current
+			if neighbor == to {
+				// Reconstruct path
+				path := []int32{}
+				cur := to
+				for cur != from {
+					path = append(path, cur)
+					cur = parent[cur]
+				}
+				path = append(path, from)
+				// Reverse
+				for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+					path[i], path[j] = path[j], path[i]
+				}
+				return path
+			}
+			queue = append(queue, neighbor)
+		}
+	}
+	return nil
+}

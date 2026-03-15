@@ -158,6 +158,8 @@ export const ru = {
     colPriceTrend: "Тренд %",
     colBuyCompetitors: "Конк. покуп.",
     colSellCompetitors: "Конк. прод.",
+    colRouteSafety: "Маршрут",
+    colRouteSafetyHint: "Безопасность маршрута — активность ганков за последний час",
 
     // Contract table
     colTitle: "Название",

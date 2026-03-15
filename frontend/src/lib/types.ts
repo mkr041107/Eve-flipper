@@ -1910,3 +1910,39 @@ export interface CorpDashboard {
   mining_summary: MiningSummary;
   market_summary: MarketSummary;
 }
+
+export interface SystemDanger {
+  SystemID: number;
+  SystemName: string;
+  Security: number;
+  KillsTotal: number;
+  DangerLevel: "green" | "yellow" | "red";
+  IsSmartbomb: boolean;
+  IsInterdictor: boolean;
+  TotalISK: number;
+}
+
+export interface KillSummary {
+  KillmailID: number;
+  VictimShip: string;
+  AttackerShips: string[];
+  Corporations: string[];
+  AttackerCount: number;
+  ISKValue: number;
+  KillTime: string;
+  ZKBLink: string;
+  IsSmartbomb: boolean;
+  IsInterdictor: boolean;
+}
+
+export interface RouteSafetySummary {
+  key: string;
+  danger: "green" | "yellow" | "red";
+  kills: number;
+  totalISK: number;
+}
+
+export type RouteState =
+  | { status: "loading" }
+  | { status: "summary"; danger: "green" | "yellow" | "red"; kills: number; totalISK: number }
+  | { status: "full"; danger: "green" | "yellow" | "red"; kills: number; totalISK: number; systems: SystemDanger[] };

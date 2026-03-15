@@ -200,6 +200,16 @@ func (c *Client) getJSONWithRetry(url string, dst interface{}, attempt int) erro
 	return json.NewDecoder(resp.Body).Decode(dst)
 }
 
+// GetSystemKills fetches recent killmails for a specific system.
+func (c *Client) GetSystemKills(systemID int32, pastSeconds int) ([]map[string]interface{}, error) {
+	url := fmt.Sprintf("%s/kills/systemID/%d/pastSeconds/%d/", baseURL, systemID, pastSeconds)
+	var kills []map[string]interface{}
+	if err := c.getJSON(url, &kills); err != nil {
+		return nil, fmt.Errorf("get system kills for system %d: %w", systemID, err)
+	}
+	return kills, nil
+}
+
 // HealthCheck pings Zkillboard to verify connectivity.
 func (c *Client) HealthCheck() bool {
 	url := baseURL + "/stats/regionID/10000002/" // The Forge - always has data

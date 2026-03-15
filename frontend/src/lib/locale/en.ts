@@ -158,6 +158,8 @@ export const en = {
     colPriceTrend: "Trend %",
     colBuyCompetitors: "Buy Comp.",
     colSellCompetitors: "Sell Comp.",
+    colRouteSafety: "Route",
+    colRouteSafetyHint: "Route safety — gank activity in the last hour",
 
     // Contract table
     colTitle: "Title",

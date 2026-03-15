@@ -51,6 +51,9 @@ import type {
   StationTradeStateMode,
   UndercutStatus,
   WatchlistItem,
+  SystemDanger,
+  KillSummary,
+  RouteSafetySummary,
 } from "./types";
 
 const BASE = import.meta.env.VITE_API_URL || "";
@@ -1583,5 +1586,30 @@ export async function getContractDetails(contractID: number): Promise<ContractDe
   if (!res.ok) {
     throw new Error("Failed to fetch contract details");
   }
+  return res.json();
+}
+
+export async function getGankCheck(from: number, to: number, minSec = 0): Promise<SystemDanger[]> {
+  const res = await apiFetch(`${BASE}/api/gankcheck?from=${from}&to=${to}&min_sec=${minSec}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function getGankCheckDetail(systemID: number): Promise<KillSummary[]> {
+  const res = await apiFetch(`${BASE}/api/gankcheck/detail?system=${systemID}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function getGankCheckBatch(
+  pairs: { from: number; to: number }[],
+  minSec = 0,
+): Promise<RouteSafetySummary[]> {
+  if (pairs.length === 0) return [];
+  const pairsStr = pairs.map((p) => `${p.from}:${p.to}`).join(",");
+  const res = await apiFetch(
+    `${BASE}/api/gankcheck/batch?pairs=${encodeURIComponent(pairsStr)}&min_sec=${minSec}`,
+  );
+  if (!res.ok) return [];
   return res.json();
 }

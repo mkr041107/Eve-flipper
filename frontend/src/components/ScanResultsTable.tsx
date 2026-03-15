@@ -8,7 +8,7 @@ import {
   useEffect,
   useRef,
 } from "react";
-import type { FlipResult, StationCacheMeta, WatchlistItem } from "@/lib/types";
+import type { FlipResult, StationCacheMeta, WatchlistItem, RouteState, SystemDanger } from "@/lib/types";
 import { formatISK, formatMargin } from "@/lib/format";
 import { useI18n, type TranslationKey } from "@/lib/i18n";
 import {
@@ -16,6 +16,8 @@ import {
   clearStationTradeStates,
   deleteStationTradeStates,
   getStationTradeStates,
+  getGankCheck,
+  getGankCheckBatch,
   getWatchlist,
   openMarketInGame,
   rebootStationCache,
@@ -28,6 +30,7 @@ import { EmptyState, type EmptyReason } from "./EmptyState";
 import { ExecutionPlannerPopup } from "./ExecutionPlannerPopup";
 import { handleEveUIError } from "@/lib/handleEveUIError";
 import { BatchBuilderPopup } from "./BatchBuilderPopup";
+import { RouteSafetyModal } from "./RouteSafetyModal";
 
 const PAGE_SIZE = 100;
 const GROUP_PAGE_SIZE = 50; // rows shown per group before "Show all" button
@@ -118,6 +121,13 @@ const baseColumnDefs: ColumnDef[] = [
     labelKey: "colExpectedBuyPrice",
     width: "min-w-[120px]",
     numeric: true,
+  },
+  {
+    key: "RouteSafety" as SortKey,
+    labelKey: "colRouteSafety",
+    width: "min-w-[60px] w-[70px]",
+    numeric: false,
+    tooltipKey: "colRouteSafetyHint" as TranslationKey,
   },
   {
     key: "BuyStation",
@@ -849,6 +859,11 @@ export function ScanResultsTable({
   );
   const [regionCollapseInitialized, setRegionCollapseInitialized] = useState(false);
 
+  // ── Route Safety ──
+  const [routeSafetyMap, setRouteSafetyMap] = useState<Record<string, RouteState>>({});
+  const [routeSafetyFilter, setRouteSafetyFilter] = useState<"all" | "green" | "yellow" | "red">("all");
+  const [routeSafetyModal, setRouteSafetyModal] = useState<{ systems: SystemDanger[] } | null>(null);
+
   const isRegionGrouped = columnProfile === "region_eveguru";
   const isItemGrouped = !isRegionGrouped && groupByItem;
   const preferredSortKey: SortKey = isRegionGrouped
@@ -903,6 +918,64 @@ export function ScanResultsTable({
       .then(setWatchlist)
       .catch(() => {});
   }, []);
+
+  // ── Route Safety batch fetch ──
+  // Fires only when scanning finishes (scanning goes false) with results
+  useEffect(() => {
+    if (scanning) return; // don't fire mid-scan
+    if (results.length === 0) {
+      setRouteSafetyMap({});
+      return;
+    }
+    const pairs: { from: number; to: number }[] = [];
+    const seen = new Set<string>();
+    for (const r of results) {
+      const f = r.BuySystemID;
+      const t = r.SellSystemID;
+      if (!f || !t || f === t) continue;
+      const k = `${f}:${t}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        pairs.push({ from: f, to: t });
+      }
+    }
+    if (pairs.length === 0) return;
+    // Mark all as loading
+    setRouteSafetyMap((prev) => {
+      const next = { ...prev };
+      for (const p of pairs) {
+        const k = `${p.from}:${p.to}`;
+        if (!next[k]) next[k] = { status: "loading" };
+      }
+      return next;
+    });
+    getGankCheckBatch(pairs).then((summaries) => {
+      setRouteSafetyMap((prev) => {
+        const next = { ...prev };
+        // Clear any pairs that weren't in the response (treat as green/safe)
+        for (const p of pairs) {
+          const k = `${p.from}:${p.to}`;
+          if (next[k]?.status === "loading") {
+            next[k] = { status: "summary", danger: "green", kills: 0, totalISK: 0 };
+          }
+        }
+        for (const s of summaries) {
+          next[s.key] = { status: "summary", danger: s.danger, kills: s.kills, totalISK: s.totalISK };
+        }
+        return next;
+      });
+    }).catch(() => {
+      // On error, clear loading state so cells don't hang
+      setRouteSafetyMap((prev) => {
+        const next = { ...prev };
+        for (const p of pairs) {
+          const k = `${p.from}:${p.to}`;
+          if (next[k]?.status === "loading") delete next[k];
+        }
+        return next;
+      });
+    });
+  }, [results, scanning]);
   const watchlistIds = useMemo(
     () => new Set(watchlist.map((w) => w.type_id)),
     [watchlist],
@@ -1110,11 +1183,24 @@ export function ScanResultsTable({
         })
       : indexed;
 
+    const dangerRank = (row: FlipResult): number => {
+      const k = `${row.BuySystemID}:${row.SellSystemID}`;
+      const rs = routeSafetyMap[k];
+      if (!rs || rs.status === "loading") return -1;
+      const d = rs.status === "full" || rs.status === "summary" ? rs.danger : "green";
+      return d === "red" ? 2 : d === "yellow" ? 1 : 0;
+    };
+
     const sorted = filtered.slice();
     sorted.sort((a, b) => {
       const aPin = pinnedIds.has(a.id);
       const bPin = pinnedIds.has(b.id);
       if (aPin !== bPin) return aPin ? -1 : 1;
+
+      if (sortKey === ("RouteSafety" as SortKey)) {
+        const diff = dangerRank(a.row) - dangerRank(b.row);
+        return sortDir === "asc" ? diff : -diff;
+      }
 
       const av = getCellValue(a.row, sortKey);
       const bv = getCellValue(b.row, sortKey);
@@ -1145,7 +1231,7 @@ export function ScanResultsTable({
     }
 
     return { indexed, filtered, sorted, variantByRowId };
-  }, [results, filters, columnDefs, sortKey, sortDir, pinnedIds]);
+  }, [results, filters, columnDefs, sortKey, sortDir, pinnedIds, routeSafetyMap]);
 
   // Available market groups derived from current results (region mode only)
   const availableGroups = useMemo<{ name: string; count: number }[]>(() => {
@@ -1194,8 +1280,18 @@ export function ScanResultsTable({
         rows = rows.filter((ir) => groupFilter.has(ir.row.DayGroupName ?? ""));
       }
     }
+    // Route safety filter — available in all modes
+    if (routeSafetyFilter !== "all") {
+      rows = rows.filter((ir) => {
+        const k = `${ir.row.BuySystemID}:${ir.row.SellSystemID}`;
+        const rs = routeSafetyMap[k];
+        if (!rs || rs.status === "loading") return routeSafetyFilter === "green";
+        const d = rs.status === "full" || rs.status === "summary" ? rs.danger : "green";
+        return d === routeSafetyFilter;
+      });
+    }
     return rows;
-  }, [sorted, showHiddenRows, hiddenMap, isRegionGrouped, categoryFilter, securityFilter, groupFilter]);
+  }, [sorted, showHiddenRows, hiddenMap, isRegionGrouped, categoryFilter, securityFilter, groupFilter, routeSafetyFilter, routeSafetyMap]);
 
   const regionGroups = useMemo<RegionGroup[]>(() => {
     if (!isRegionGrouped) return [];
@@ -1908,6 +2004,29 @@ export function ScanResultsTable({
   }, [focusedRowId]);
 
   // renderDataRow: renders a DataRow memo component — only the changed row re-renders
+  const handleRouteSafetyClick = useCallback(
+    (from: number, to: number, e: import("react").MouseEvent) => {
+      e.stopPropagation();
+      const key = `${from}:${to}`;
+      const entry = routeSafetyMap[key];
+      if (entry && entry.status === "full") {
+        setRouteSafetyModal({ systems: entry.systems });
+        return;
+      }
+      getGankCheck(from, to).then((systems) => {
+        setRouteSafetyMap((prev) => {
+          const pe = prev[key];
+          const danger = pe && pe.status !== "loading" ? pe.danger : "green";
+          const kills = pe && pe.status !== "loading" ? pe.kills : 0;
+          const totalISK = pe && pe.status !== "loading" ? pe.totalISK : 0;
+          return { ...prev, [key]: { status: "full", danger, kills, totalISK, systems } };
+        });
+        setRouteSafetyModal({ systems });
+      });
+    },
+    [routeSafetyMap],
+  );
+
   const renderDataRow = useCallback(
     (
       ir: IndexedRow,
@@ -1935,6 +2054,8 @@ export function ScanResultsTable({
         onToggleSelect={toggleSelect}
         onTogglePin={togglePin}
         tFn={t}
+        routeSafetyEntry={routeSafetyMap[`${ir.row.BuySystemID}:${ir.row.SellSystemID}`]}
+        onRouteSafetyClick={handleRouteSafetyClick}
       />
     ),
     [
@@ -1953,6 +2074,8 @@ export function ScanResultsTable({
       togglePin,
       toggleSelect,
       variantByRowId,
+      routeSafetyMap,
+      handleRouteSafetyClick,
     ],
   );
 
@@ -2109,6 +2232,35 @@ export function ScanResultsTable({
               {cacheBadgeText}
             </button>
           </>
+        )}
+
+        {/* Route Safety filter */}
+        {results.length > 0 && !scanning && (
+          <div className="inline-flex items-center rounded-sm border border-eve-border/60 bg-eve-dark/40 text-[11px] overflow-hidden">
+            {(["all", "green", "yellow", "red"] as const).map((lvl) => {
+              const active = routeSafetyFilter === lvl;
+              const dot = lvl === "all" ? null : (
+                <span className={`inline-block w-1.5 h-1.5 rounded-full mr-0.5 ${
+                  lvl === "green" ? "bg-green-400" : lvl === "yellow" ? "bg-yellow-400" : "bg-red-400"
+                }`} />
+              );
+              return (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => setRouteSafetyFilter(lvl)}
+                  className={`px-1.5 py-0.5 border-r last:border-r-0 border-eve-border/40 flex items-center transition-colors ${
+                    active
+                      ? "bg-eve-accent/15 text-eve-accent border-eve-accent/40"
+                      : "text-eve-dim hover:text-eve-text"
+                  }`}
+                  title={`Route safety: ${lvl}`}
+                >
+                  {dot}{lvl === "all" ? "Route: All" : lvl.charAt(0).toUpperCase() + lvl.slice(1)}
+                </button>
+              );
+            })}
+          </div>
         )}
 
         {/* Action buttons */}
@@ -3111,6 +3263,13 @@ export function ScanResultsTable({
         rows={results}
         defaultCargoM3={cargoLimit}
       />
+
+      {routeSafetyModal && (
+        <RouteSafetyModal
+          systems={routeSafetyModal.systems}
+          onClose={() => setRouteSafetyModal(null)}
+        />
+      )}
     </div>
   );
 }
@@ -3137,6 +3296,8 @@ interface DataRowProps {
   onToggleSelect: (id: number) => void;
   onTogglePin: (id: number) => void;
   tFn: (key: TranslationKey, vars?: Record<string, string | number>) => string;
+  routeSafetyEntry: RouteState | undefined;
+  onRouteSafetyClick: (from: number, to: number, e: import("react").MouseEvent) => void;
 }
 
 /* ─── Trade Score Badge ─── */
@@ -3157,6 +3318,51 @@ function TradeScoreBadge({ score }: { score: number }) {
   );
 }
 
+/* ─── Route Safety Cell ─── */
+function RouteSafetyCell({
+  entry,
+  from,
+  to,
+  onRouteSafetyClick,
+}: {
+  entry: RouteState | undefined;
+  from: number;
+  to: number;
+  onRouteSafetyClick: (from: number, to: number, e: import("react").MouseEvent) => void;
+}) {
+  if (!entry) {
+    return <span className="text-eve-dim/30 text-[10px]">—</span>;
+  }
+  if (entry.status === "loading") {
+    return <span className="text-eve-dim/50 text-[10px] animate-pulse">·</span>;
+  }
+  const danger = entry.danger;
+  const kills = entry.kills;
+  const dotCls =
+    danger === "red"
+      ? "bg-red-400"
+      : danger === "yellow"
+        ? "bg-yellow-400"
+        : "bg-green-400";
+  const textCls =
+    danger === "red"
+      ? "text-red-400"
+      : danger === "yellow"
+        ? "text-yellow-400"
+        : "text-green-400/70";
+  return (
+    <button
+      type="button"
+      onClick={(e) => onRouteSafetyClick(from, to, e)}
+      className="inline-flex items-center gap-1 text-[11px] bg-transparent border-0 cursor-pointer p-0 hover:opacity-80 transition-opacity"
+      title={`Route safety: ${danger}${kills > 0 ? ` — ${kills} kills` : ""}`}
+    >
+      <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
+      {kills > 0 && <span className={`font-mono tabular-nums leading-none ${textCls}`}>{kills}</span>}
+    </button>
+  );
+}
+
 const DataRow = memo(
   function DataRow({
     ir, globalIdx, columnDefs, compactMode,
@@ -3164,6 +3370,7 @@ const DataRow = memo(
     isItemGrouped, isRegionGrouped, variantExpandable, variantExpanded,
     onToggleVariantGroup, onContextMenu, onLmbClick,
     onToggleSelect, onTogglePin, tFn,
+    routeSafetyEntry, onRouteSafetyClick,
   }: DataRowProps) {
     return (
       <tr
@@ -3264,6 +3471,15 @@ const DataRow = memo(
               </div>
             ) : col.key === "DayTradeScore" ? (
               <TradeScoreBadge score={ir.row.DayTradeScore ?? 0} />
+            ) : col.key === ("RouteSafety" as SortKey) ? (
+              <RouteSafetyCell
+                entry={routeSafetyEntry}
+                from={ir.row.BuySystemID}
+                to={ir.row.SellSystemID}
+                onRouteSafetyClick={onRouteSafetyClick}
+              />
+            ) : col.key === "BuyStation" ? (
+              <span className="truncate">{fmtCell(col, ir.row)}</span>
             ) : (
               fmtCell(col, ir.row)
             )}
@@ -3291,7 +3507,9 @@ const DataRow = memo(
     prev.onContextMenu === next.onContextMenu &&
     prev.onLmbClick === next.onLmbClick &&
     prev.onToggleSelect === next.onToggleSelect &&
-    prev.onTogglePin === next.onTogglePin,
+    prev.onTogglePin === next.onTogglePin &&
+    prev.routeSafetyEntry === next.routeSafetyEntry &&
+    prev.onRouteSafetyClick === next.onRouteSafetyClick,
 );
 
 /* ─── EVE category name lookup ─── */
