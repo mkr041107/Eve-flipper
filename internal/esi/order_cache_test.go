@@ -73,3 +73,49 @@ func TestOrderCacheClear(t *testing.T) {
 		t.Fatalf("Entries=%d, want 0", window.Entries)
 	}
 }
+
+func TestOrderCacheClearResetsSingleflightGroup(t *testing.T) {
+	oc := NewOrderCache()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		_, _, _ = oc.Do("10000002:sell", func() (interface{}, error) {
+			close(started)
+			<-release
+			return "old", nil
+		})
+		close(done)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("initial singleflight call did not start")
+	}
+
+	oc.Clear()
+
+	freshDone := make(chan struct{})
+	go func() {
+		_, _, _ = oc.Do("10000002:sell", func() (interface{}, error) {
+			return "new", nil
+		})
+		close(freshDone)
+	}()
+
+	select {
+	case <-freshDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("singleflight group was not reset by Clear")
+	}
+
+	close(release)
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("original singleflight call did not finish")
+	}
+}

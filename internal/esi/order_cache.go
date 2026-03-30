@@ -30,8 +30,9 @@ type orderCacheEntry struct {
 // A singleflight.Group prevents duplicate in-flight fetches for the same key.
 type OrderCache struct {
 	mu      sync.RWMutex
+	groupMu sync.RWMutex
 	entries map[orderCacheKey]*orderCacheEntry
-	group   singleflight.Group
+	group   *singleflight.Group
 }
 
 // OrderCacheWindow describes freshness bounds for a set of region cache entries.
@@ -50,6 +51,7 @@ type OrderCacheWindow struct {
 func NewOrderCache() *OrderCache {
 	return &OrderCache{
 		entries: make(map[orderCacheKey]*orderCacheEntry),
+		group:   &singleflight.Group{},
 	}
 }
 
@@ -60,10 +62,28 @@ func (oc *OrderCache) Clear() int {
 		return 0
 	}
 	oc.mu.Lock()
-	defer oc.mu.Unlock()
 	n := len(oc.entries)
 	oc.entries = make(map[orderCacheKey]*orderCacheEntry)
+	oc.mu.Unlock()
+
+	oc.groupMu.Lock()
+	oc.group = &singleflight.Group{}
+	oc.groupMu.Unlock()
 	return n
+}
+
+func (oc *OrderCache) Do(key string, fn func() (interface{}, error)) (interface{}, error, bool) {
+	if oc == nil {
+		v, err := fn()
+		return v, err, false
+	}
+	oc.groupMu.RLock()
+	group := oc.group
+	oc.groupMu.RUnlock()
+	if group == nil {
+		group = &singleflight.Group{}
+	}
+	return group.Do(key, fn)
 }
 
 // EvictExpired removes all cache entries whose Expires time has passed.
@@ -242,7 +262,7 @@ func (c *Client) ClearOrderCache() int {
 func (c *Client) FetchRegionOrdersCached(regionID int32, orderType string) ([]MarketOrder, error) {
 	sfKey := fmt.Sprintf("%d:%s", regionID, orderType)
 
-	result, err, _ := c.orderCache.group.Do(sfKey, func() (interface{}, error) {
+	result, err, _ := c.orderCache.Do(sfKey, func() (interface{}, error) {
 		return c.fetchRegionOrdersWithCache(regionID, orderType)
 	})
 	if err != nil {

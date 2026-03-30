@@ -15,7 +15,7 @@ import (
 const (
 	authorizeURL = "https://login.eveonline.com/v2/oauth/authorize"
 	tokenURL     = "https://login.eveonline.com/v2/oauth/token"
-	verifyURL    = "https://login.eveonline.com/oauth/verify"
+	verifyURL    = "https://login.eveonline.com/v2/oauth/verify"
 )
 
 // SSOConfig holds EVE SSO OAuth2 configuration.

@@ -84,6 +84,7 @@ const defaultPatronsURL = "https://ilyaux.github.io/eve-flipper-data/patrons.jso
 const patronsDataURL =
   (import.meta.env.VITE_PATRONS_URL as string | undefined)?.trim() ||
   defaultPatronsURL;
+const REGION_SCAN_RESTORE_MAX_ROWS = 750;
 
 type DesktopRuntimeWindow = Window & {
   __TAURI_INTERNALS__?: unknown;
@@ -445,6 +446,7 @@ function App() {
   const radiusAutoRefreshLastRunRef = useRef<number>(0);
   const regionAutoRefreshSignatureRef = useRef<string>("");
   const regionAutoRefreshLastRunRef = useRef<number>(0);
+  const regionPersistTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const { addToast } = useGlobalToast();
 
   const openExternalURL = useCallback(async (url: string) => {
@@ -1005,17 +1007,9 @@ function App() {
           },
         );
         const normalizedRows = normalizeRegionalResults(rows as unknown[]);
-        // Persist region scan results to localStorage for cross-session restore
-        try {
-          localStorage.setItem(
-            "eve_flipper_region_scan",
-            JSON.stringify({ ts: Date.now(), results: normalizedRows }),
-          );
-        } catch {
-          // ignore storage quota errors
-        }
         setRegionResults(normalizedRows);
         setRegionCacheMeta(meta ?? null);
+        queueRegionScanPersistence(normalizedRows);
 
         const flatRows: Array<{
           TypeID: number;
@@ -1061,7 +1055,7 @@ function App() {
     } finally {
       setScanning(false);
     }
-  }, [scanning, tab, params, t, addToast, alertChannels]);
+  }, [scanning, tab, params, t, addToast, alertChannels, queueRegionScanPersistence]);
 
   // Auto-refresh: when enabled and radius cache expires, re-trigger scan automatically
   useEffect(() => {
@@ -1198,6 +1192,28 @@ function App() {
     });
     regionDefaultsAppliedRef.current = true;
   }, [tab]);
+
+  useEffect(() => {
+    return () => clearTimeout(regionPersistTimerRef.current);
+  }, []);
+
+  function queueRegionScanPersistence(rows: FlipResult[]): void {
+    clearTimeout(regionPersistTimerRef.current);
+    regionPersistTimerRef.current = window.setTimeout(() => {
+      try {
+        if (rows.length > REGION_SCAN_RESTORE_MAX_ROWS) {
+          localStorage.removeItem("eve_flipper_region_scan");
+          return;
+        }
+        localStorage.setItem(
+          "eve_flipper_region_scan",
+          JSON.stringify({ ts: Date.now(), results: rows }),
+        );
+      } catch {
+        // ignore storage quota and access errors
+      }
+    }, 0);
+  }
 
   return (
     <>

@@ -507,6 +507,117 @@ function mapServerCacheMeta(
   };
 }
 
+const ScanCacheControls = memo(function ScanCacheControls({
+  cacheMeta,
+  tradeStateTab,
+  showRegions,
+  lastScanTs,
+}: {
+  cacheMeta?: StationCacheMeta | null;
+  tradeStateTab: "radius" | "region";
+  showRegions: boolean;
+  lastScanTs: number;
+}) {
+  const { t } = useI18n();
+  const { addToast } = useGlobalToast();
+  const [cacheNowTs, setCacheNowTs] = useState<number>(Date.now());
+  const [cacheStaleSuppressedUntilTs, setCacheStaleSuppressedUntilTs] =
+    useState<number>(0);
+  const [cacheRebooting, setCacheRebooting] = useState(false);
+  const [localFallbackTs, setLocalFallbackTs] = useState<number>(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setCacheNowTs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const cacheView = useMemo(() => {
+    const scopeLabel =
+      tradeStateTab === "region"
+        ? t("hiddenScopeRegionScan")
+        : t("hiddenScopeRadiusScan");
+    const fallbackRegionCount = showRegions ? 2 : 1;
+    return mapServerCacheMeta(
+      cacheMeta,
+      scopeLabel,
+      fallbackRegionCount,
+      Math.max(lastScanTs, localFallbackTs),
+    );
+  }, [cacheMeta, lastScanTs, localFallbackTs, showRegions, t, tradeStateTab]);
+
+  const cacheSecondsLeft = useMemo(
+    () => Math.floor((cacheView.nextExpiryAt - cacheNowTs) / 1000),
+    [cacheNowTs, cacheView.nextExpiryAt],
+  );
+  const isCacheStale = useMemo(
+    () =>
+      cacheSecondsLeft <= 0 && cacheNowTs >= cacheStaleSuppressedUntilTs,
+    [cacheNowTs, cacheSecondsLeft, cacheStaleSuppressedUntilTs],
+  );
+  const cacheBadgeText = useMemo(() => {
+    if (isCacheStale) return t("cacheStale");
+    return t("cacheLabel", { time: formatCountdown(cacheSecondsLeft) });
+  }, [cacheSecondsLeft, isCacheStale, t]);
+
+  useEffect(() => {
+    setCacheStaleSuppressedUntilTs(0);
+  }, [cacheView.currentRevision]);
+
+  const handleRebootCache = useCallback(async () => {
+    if (cacheRebooting) return;
+    setCacheRebooting(true);
+    try {
+      const res = await rebootStationCache();
+      const nowTs = Date.now();
+      setLocalFallbackTs(nowTs);
+      setCacheNowTs(nowTs);
+      setCacheStaleSuppressedUntilTs(nowTs + 45_000);
+      addToast(t("cacheRebooted", { count: res.cleared }), "success", 2400);
+      addToast(t("cacheRebootRescanHint"), "info", 2600);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : t("cacheRebootFailed");
+      addToast(msg, "error", 2800);
+    } finally {
+      setCacheRebooting(false);
+    }
+  }, [addToast, cacheRebooting, t]);
+
+  const cacheTooltip = `${t("cacheTooltipScope")}: ${cacheView.scopeLabel}\n${t("cacheTooltipRegions")}: ${cacheView.regionCount}\n${t("cacheTooltipLastRefresh")}: ${new Date(cacheView.lastRefreshAt).toLocaleTimeString()}\n${t("cacheTooltipNextExpiry")}: ${new Date(cacheView.nextExpiryAt).toLocaleTimeString()}`;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          void handleRebootCache();
+        }}
+        disabled={cacheRebooting}
+        className={`px-2 py-0.5 rounded-sm border bg-eve-dark/40 text-[11px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+          isCacheStale
+            ? "border-red-500/60 text-red-300 hover:bg-red-900/20"
+            : "border-eve-border/60 text-eve-dim hover:border-eve-accent/50 hover:text-eve-accent"
+        }`}
+        title={t("cacheHardResetTitle")}
+      >
+        {cacheRebooting ? t("cacheRebooting") : t("cacheReboot")}
+      </button>
+      <button
+        type="button"
+        className={`px-2 py-0.5 rounded-sm border text-[11px] font-mono transition-colors ${
+          isCacheStale
+            ? "border-red-500/50 text-red-300 bg-red-950/30"
+            : "border-eve-border/60 text-eve-accent bg-eve-dark/40 hover:border-eve-accent/50"
+        }`}
+        title={cacheTooltip}
+      >
+        {cacheBadgeText}
+      </button>
+    </>
+  );
+});
+
 function hash53(input: string): number {
   let h1 = 0xdeadbeef ^ input.length;
   let h2 = 0x41c6ce57 ^ input.length;
@@ -846,11 +957,7 @@ export function ScanResultsTable({
   const [ignoredSearch, setIgnoredSearch] = useState("");
   const [ignoredTab, setIgnoredTab] = useState<HiddenFilterTab>("all");
   const [ignoredSelectedKeys, setIgnoredSelectedKeys] = useState<Set<string>>(new Set());
-  const [cacheNowTs, setCacheNowTs] = useState<number>(Date.now());
   const [lastScanTs, setLastScanTs] = useState<number>(Date.now());
-  const [cacheStaleSuppressedUntilTs, setCacheStaleSuppressedUntilTs] =
-    useState<number>(0);
-  const [cacheRebooting, setCacheRebooting] = useState(false);
   const [collapsedRegionGroups, setCollapsedRegionGroups] = useState<Set<string>>(
     new Set(),
   );
@@ -1545,13 +1652,6 @@ export function ScanResultsTable({
     });
   }, [hiddenMap]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setCacheNowTs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   const cacheView = useMemo(() => {
     const scopeLabel =
       tradeStateTab === "region"
@@ -1561,24 +1661,10 @@ export function ScanResultsTable({
     return mapServerCacheMeta(cacheMeta, scopeLabel, fallbackRegionCount, lastScanTs);
   }, [cacheMeta, lastScanTs, showRegions, t, tradeStateTab]);
 
-  const cacheSecondsLeft = useMemo(
-    () => Math.floor((cacheView.nextExpiryAt - cacheNowTs) / 1000),
-    [cacheNowTs, cacheView.nextExpiryAt],
-  );
   const isCacheStale = useMemo(
-    () =>
-      cacheSecondsLeft <= 0 && cacheNowTs >= cacheStaleSuppressedUntilTs,
-    [cacheNowTs, cacheSecondsLeft, cacheStaleSuppressedUntilTs],
+    () => Date.now() >= cacheView.nextExpiryAt,
+    [cacheView.nextExpiryAt],
   );
-
-  const cacheBadgeText = useMemo(() => {
-    if (isCacheStale) return t("cacheStale");
-    return t("cacheLabel", { time: formatCountdown(cacheSecondsLeft) });
-  }, [cacheSecondsLeft, isCacheStale, t]);
-
-  useEffect(() => {
-    setCacheStaleSuppressedUntilTs(0);
-  }, [cacheView.currentRevision]);
 
   const refreshHiddenStates = useCallback(
     async (currentRevision?: number) => {
@@ -1841,26 +1927,6 @@ export function ScanResultsTable({
       void refreshHiddenStates(cacheView.currentRevision);
     }
   }, [addToast, cacheView.currentRevision, hiddenMap, refreshHiddenStates, t, tradeStateTab]);
-
-  const handleRebootCache = useCallback(async () => {
-    if (cacheRebooting) return;
-    setCacheRebooting(true);
-    try {
-      const res = await rebootStationCache();
-      const nowTs = Date.now();
-      setLastScanTs(nowTs);
-      setCacheNowTs(nowTs);
-      // Give backend cache reboot a short grace period before stale marker returns.
-      setCacheStaleSuppressedUntilTs(nowTs + 45_000);
-      addToast(t("cacheRebooted", { count: res.cleared }), "success", 2400);
-      addToast(t("cacheRebootRescanHint"), "info", 2600);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : t("cacheRebootFailed");
-      addToast(msg, "error", 2800);
-    } finally {
-      setCacheRebooting(false);
-    }
-  }, [addToast, cacheRebooting, t]);
 
   const exportCSV = useCallback(() => {
     const rows =
@@ -2205,32 +2271,12 @@ export function ScanResultsTable({
             >
               {t("hiddenButton", { count: hiddenCounts.total })}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                void handleRebootCache();
-              }}
-              disabled={cacheRebooting}
-              className={`px-2 py-0.5 rounded-sm border bg-eve-dark/40 text-[11px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                isCacheStale
-                  ? "border-red-500/60 text-red-300 hover:bg-red-900/20"
-                  : "border-eve-border/60 text-eve-dim hover:border-eve-accent/50 hover:text-eve-accent"
-              }`}
-              title={t("cacheHardResetTitle")}
-            >
-              {cacheRebooting ? t("cacheRebooting") : t("cacheReboot")}
-            </button>
-            <button
-              type="button"
-              className={`px-2 py-0.5 rounded-sm border text-[11px] font-mono transition-colors ${
-                isCacheStale
-                  ? "border-red-500/50 text-red-300 bg-red-950/30"
-                  : "border-eve-border/60 text-eve-accent bg-eve-dark/40 hover:border-eve-accent/50"
-              }`}
-              title={`${t("cacheTooltipScope")}: ${cacheView.scopeLabel}\n${t("cacheTooltipRegions")}: ${cacheView.regionCount}\n${t("cacheTooltipLastRefresh")}: ${new Date(cacheView.lastRefreshAt).toLocaleTimeString()}\n${t("cacheTooltipNextExpiry")}: ${new Date(cacheView.nextExpiryAt).toLocaleTimeString()}`}
-            >
-              {cacheBadgeText}
-            </button>
+            <ScanCacheControls
+              cacheMeta={cacheMeta}
+              tradeStateTab={tradeStateTab}
+              showRegions={showRegions}
+              lastScanTs={lastScanTs}
+            />
           </>
         )}
 
