@@ -79,6 +79,12 @@ export interface FlipResult {
   DayPriceHistory?: number[];
   /** Lowest sell order price at the destination — populated in sell-order mode */
   DayTargetLowestSell?: number;
+  /** Order fill percentage (0-100%) */
+  FillRatePct?: number;
+  /** Estimated time to sell inventory in days */
+  EstTurnoverDays?: number;
+  /** Composite reliability score (0-100) */
+  ConfidenceScore?: number;
 }
 
 export interface RegionalDayTradeItem {
@@ -168,6 +174,10 @@ export interface ContractResult {
   ItemCount: number;
   Jumps: number;
   ProfitPerJump: number;
+  RiskScore?: number;
+  RiskFlags?: string[];
+  IsCourier?: boolean;
+  CollateralISK?: number;
 }
 
 export interface ContractItem {
@@ -217,6 +227,10 @@ export interface RouteHop {
   Profit: number;
   Jumps: number;
   RegionID?: number;
+  DangerLevel?: string;
+  HasCampers?: boolean;
+  CamperCorps?: string[];
+  KillsLastHour?: number;
 }
 
 export interface RouteResult {
@@ -227,6 +241,31 @@ export interface RouteResult {
   HopCount: number;
   TargetSystemName?: string;
   TargetJumps?: number;
+  MaxDangerLevel?: string;
+  CargoM3?: number;
+  CargoRiskRatio?: number;
+  HotZoneWarning?: boolean;
+}
+
+export interface BatchItem {
+  TypeID: number;
+  TypeName: string;
+  Units: number;
+  BuyPrice: number;
+  SellPrice: number;
+  Profit: number;
+  VolumeM3: number;
+  TotalM3: number;
+  TotalISK: number;
+}
+
+export interface CargoManifest {
+  Items: BatchItem[];
+  TotalM3: number;
+  TotalISK: number;
+  TotalProfit: number;
+  CapacityUsed: number;
+  BudgetUsed: number;
 }
 
 export type NdjsonRouteMessage =

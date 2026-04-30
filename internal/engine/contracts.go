@@ -1089,7 +1089,7 @@ func (s *Scanner) ScanContractsWithContext(ctx context.Context, params ScanParam
 			profitPerJump = kpiProfit / float64(jumps)
 		}
 
-		results = append(results, ContractResult{
+		result := ContractResult{
 			ContractID:            contract.ContractID,
 			Title:                 title,
 			Price:                 contract.Price,
@@ -1112,7 +1112,12 @@ func (s *Scanner) ScanContractsWithContext(ctx context.Context, params ScanParam
 			LiquidationJumps:      liquidationJumps,
 			Jumps:                 jumps,
 			ProfitPerJump:         sanitizeFloat(profitPerJump),
-		})
+			IsCourier:             contract.Type == "courier",
+			CollateralISK:         contract.Collateral,
+		}
+
+		result.RiskScore, result.RiskFlags = calcContractRiskScore(&result)
+		results = append(results, result)
 	}
 
 	log.Printf("[DEBUG] ScanContracts: %d profitable results", len(results))
@@ -1200,6 +1205,34 @@ func (s *Scanner) fetchContractItemsHistory(typeIDs map[int32]bool, priceData ma
 	}
 
 	wg.Wait()
+}
+
+// calcContractRiskScore calculates a risk score (0-100) for a contract and returns risk flags.
+func calcContractRiskScore(r *ContractResult) (float64, []string) {
+	score := 0.0
+	var flags []string
+
+	if r.IsCourier && r.CollateralISK == 0 {
+		score += 60
+		flags = append(flags, "zero_collateral")
+	}
+	if r.IsCourier && r.CollateralISK > 0 && r.CollateralISK < r.MarketValue*0.5 {
+		score += 40
+		flags = append(flags, "undervalued_collateral")
+	}
+	if !r.IsCourier && r.MarginPercent > 80 {
+		score += 30
+		flags = append(flags, "extreme_underpriced")
+	} else if !r.IsCourier && r.MarginPercent > 50 {
+		score += 25
+		flags = append(flags, "highly_underpriced")
+	}
+	if r.ItemCount == 0 {
+		score += 20
+		flags = append(flags, "no_items")
+	}
+
+	return math.Min(100, score), flags
 }
 
 // bestHubRegion picks the highest-priority trade hub region from the set,

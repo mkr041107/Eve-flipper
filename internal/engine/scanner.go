@@ -1062,6 +1062,15 @@ func (s *Scanner) calculateResults(
 			profitPerUnit = results[i].RealProfit / float64(results[i].FilledQty)
 		}
 		results[i].DailyProfit = profitPerUnit * float64(sellablePerDay)
+
+		// FillRatePct: ratio of fillable quantity to total buy order depth
+		if results[i].BuyOrderRemain > 0 {
+			results[i].FillRatePct = math.Min(100, float64(results[i].UnitsToBuy)/float64(results[i].BuyOrderRemain)*100)
+		}
+		// EstTurnoverDays: units to buy divided by daily buy-from-sell flow
+		if results[i].BfSPerDay > 0 {
+			results[i].EstTurnoverDays = float64(results[i].UnitsToBuy) / results[i].BfSPerDay
+		}
 	}
 
 	// Post-filter: min daily volume
@@ -1511,5 +1520,18 @@ func (s *Scanner) enrichWithHistory(results []FlipResult, progress func(string))
 		results[r.idx].Velocity = sanitizeFloat(r.stats.Velocity)
 		results[r.idx].PriceTrend = sanitizeFloat(r.stats.PriceTrend)
 		results[r.idx].HistoryAvailable = r.historyAvailable
+
+		// ConfidenceScore: composite score from history availability, velocity, and fill rate
+		score := 0.0
+		if results[r.idx].HistoryAvailable {
+			score += 40
+		}
+		if results[r.idx].Velocity > 0.5 {
+			score += 30
+		}
+		if results[r.idx].FillRatePct > 50 {
+			score += 30
+		}
+		results[r.idx].ConfidenceScore = math.Min(100, score)
 	}
 }

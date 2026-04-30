@@ -719,6 +719,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/scan/multi-region", s.handleScanMultiRegion)
 	mux.HandleFunc("POST /api/scan/regional-day", s.handleScanRegionalDay)
 	mux.HandleFunc("POST /api/scan/contracts", s.handleScanContracts)
+	mux.HandleFunc("POST /api/scan/batch-optimize", s.handleBatchOptimize)
 	mux.HandleFunc("POST /api/route/find", s.handleRouteFind)
 	mux.HandleFunc("GET /api/watchlist", s.handleGetWatchlist)
 	mux.HandleFunc("POST /api/watchlist", s.handleAddWatchlist)
@@ -3000,6 +3001,24 @@ func (s *Server) handleScanContracts(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, "%s\n", line)
 	flusher.Flush()
+}
+
+func (s *Server) handleBatchOptimize(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Results []engine.FlipResult `json:"results"`
+		CargoM3 float64             `json:"cargo_m3"`
+		Budget  float64             `json:"budget"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	manifest := engine.BatchOptimize(req.Results, req.CargoM3, req.Budget, s.SDE)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(manifest)
 }
 
 func (s *Server) handleRouteFind(w http.ResponseWriter, r *http.Request) {

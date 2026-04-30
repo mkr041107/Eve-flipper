@@ -378,6 +378,23 @@ export async function scanContracts(
   );
 }
 
+export async function batchOptimize(
+  results: FlipResult[],
+  cargoM3: number,
+  budget: number
+): Promise<CargoManifest> {
+  const res = await apiFetch(`${BASE}/api/scan/batch-optimize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      results,
+      cargo_m3: cargoM3,
+      budget,
+    }),
+  });
+  return handleResponse<CargoManifest>(res);
+}
+
 export async function findRoutes(
   params: ScanParams,
   minHops: number,

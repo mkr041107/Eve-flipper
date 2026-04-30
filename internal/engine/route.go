@@ -802,6 +802,18 @@ func (s *Scanner) FindRoutes(params RouteParams, progress func(string)) ([]Route
 		}
 	}
 
+	// Enrich routes with danger levels and cargo metrics
+	for i := range completedRoutes {
+		route := &completedRoutes[i]
+		route.MaxDangerLevel = maxDangerFromHops(route.Hops)
+		route.HotZoneWarning = route.MaxDangerLevel == "red"
+		route.CargoM3 = totalCargoM3FromHops(route.Hops, s.SDE)
+		if route.CargoM3 > 0 {
+			dangerFactor := dangerMultiplier(route.MaxDangerLevel)
+			route.CargoRiskRatio = route.TotalProfit / (route.CargoM3 * dangerFactor)
+		}
+	}
+
 	progress(fmt.Sprintf("Found %d routes", len(completedRoutes)))
 	log.Printf("[Route] Found %d routes, explored %d candidates", len(completedRoutes), explored)
 	return completedRoutes, nil
@@ -820,6 +832,43 @@ func routeVisitsSystem(hops []RouteHop, systemID int32) bool {
 		}
 	}
 	return false
+}
+
+// maxDangerFromHops returns the worst danger level across all hops.
+func maxDangerFromHops(hops []RouteHop) string {
+	dangerOrder := map[string]int{"red": 3, "yellow": 2, "green": 1, "": 0}
+	maxDanger := ""
+	maxPriority := 0
+	for _, h := range hops {
+		if dangerOrder[h.DangerLevel] > maxPriority {
+			maxDanger = h.DangerLevel
+			maxPriority = dangerOrder[h.DangerLevel]
+		}
+	}
+	return maxDanger
+}
+
+// dangerMultiplier returns a profit risk factor based on danger level.
+func dangerMultiplier(level string) float64 {
+	switch level {
+	case "red":
+		return 4.0
+	case "yellow":
+		return 2.0
+	default:
+		return 1.0
+	}
+}
+
+// totalCargoM3FromHops sums cargo volume across all hops in a route.
+func totalCargoM3FromHops(hops []RouteHop, sde *sde.Data) float64 {
+	total := 0.0
+	for _, h := range hops {
+		if itemGroup, ok := sde.Items[h.TypeID]; ok {
+			total += itemGroup.Volume * float64(h.Units)
+		}
+	}
+	return total
 }
 
 // routeKey generates a unique string key for a route based on the sequence of systems and items.

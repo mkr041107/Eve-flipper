@@ -42,6 +42,14 @@ type SystemDanger struct {
 	TotalISK      float64 `json:"TotalISK"`
 }
 
+// CamperProfile tracks suspected player killers in a system.
+type CamperProfile struct {
+	SystemID    int32    `json:"SystemID"`
+	SystemName  string   `json:"SystemName"`
+	CamperCorps []string `json:"CamperCorps"`
+	KillCount   int      `json:"KillCount"`
+}
+
 type Checker struct {
 	zkb        *zkillboard.Client
 	esiCl      *esi.Client
@@ -371,4 +379,38 @@ func (c *Checker) CheckSystemDetail(systemID int32) ([]KillSummary, error) {
 	})
 
 	return summaries, nil
+}
+
+// GetCamperProfile analyzes recent kills to identify suspected camping corporations.
+func (c *Checker) GetCamperProfile(systemID int32) CamperProfile {
+	// Get kills from the last hour
+	kills, err := c.zkb.GetSystemKills(systemID, 1)
+	if err != nil || len(kills) == 0 {
+		return CamperProfile{
+			SystemID:  systemID,
+			KillCount: 0,
+		}
+	}
+
+	// Count corporations appearing in recent kills
+	corpCounts := make(map[string]int)
+	for _, k := range kills {
+		for _, corp := range k.Corporations {
+			corpCounts[corp]++
+		}
+	}
+
+	// Identify corps appearing in 3+ recent kills as suspected campers
+	var campers []string
+	for corp, count := range corpCounts {
+		if count >= 3 {
+			campers = append(campers, corp)
+		}
+	}
+
+	return CamperProfile{
+		SystemID:    systemID,
+		CamperCorps: campers,
+		KillCount:   len(kills),
+	}
 }

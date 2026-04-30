@@ -61,6 +61,9 @@ type FlipResult struct {
 	CanFill           bool    `json:"CanFill"`              // true when requested quantity is executable profitably
 	SlippageBuyPct    float64 `json:"SlippageBuyPct,omitempty"`
 	SlippageSellPct   float64 `json:"SlippageSellPct,omitempty"`
+	FillRatePct       float64 `json:"FillRatePct,omitempty"`
+	EstTurnoverDays   float64 `json:"EstTurnoverDays,omitempty"`
+	ConfidenceScore   float64 `json:"ConfidenceScore,omitempty"`
 
 	// Regional day-trader enrichments (EVE Guru-style grouped region view).
 	DaySecurity           float64   `json:"DaySecurity,omitempty"`
@@ -112,6 +115,10 @@ type ContractResult struct {
 	LiquidationJumps      int // jumps from pickup system to liquidation system (instant mode)
 	Jumps                 int
 	ProfitPerJump         float64
+	RiskScore             float64  `json:"RiskScore,omitempty"`
+	RiskFlags             []string `json:"RiskFlags,omitempty"`
+	IsCourier             bool     `json:"IsCourier,omitempty"`
+	CollateralISK         float64  `json:"CollateralISK,omitempty"`
 }
 
 // RouteHop represents a single buy-haul-sell leg within a multi-hop trade route.
@@ -133,6 +140,10 @@ type RouteHop struct {
 	Units           int32
 	Profit          float64
 	Jumps           int // jumps to destination
+	DangerLevel     string   `json:"DangerLevel,omitempty"`
+	HasCampers      bool     `json:"HasCampers,omitempty"`
+	CamperCorps     []string `json:"CamperCorps,omitempty"`
+	KillsLastHour   int      `json:"KillsLastHour,omitempty"`
 }
 
 // RouteResult represents a complete multi-hop trade route with aggregated profit.
@@ -144,6 +155,10 @@ type RouteResult struct {
 	HopCount         int
 	TargetSystemName string `json:"TargetSystemName,omitempty"` // optional trip destination constraint
 	TargetJumps      int    `json:"TargetJumps,omitempty"`      // deadhead jumps from final trade to target
+	MaxDangerLevel   string  `json:"MaxDangerLevel,omitempty"`
+	CargoM3          float64 `json:"CargoM3,omitempty"`
+	CargoRiskRatio   float64 `json:"CargoRiskRatio,omitempty"`
+	HotZoneWarning   bool    `json:"HotZoneWarning,omitempty"`
 }
 
 // RouteParams holds the input parameters for multi-hop route search.
@@ -237,4 +252,27 @@ type ScanParams struct {
 	ContractHoldDays           int     // Non-instant mode: hold horizon in days (0 = default)
 	ContractTargetConfidence   float64 // Non-instant mode: minimum full-liquidation probability in % (0 = default)
 	ExcludeRigsWithShip        bool    // If true, exclude rig pricing when contract contains a ship
+}
+
+// BatchItem represents a single item in an optimized cargo manifest.
+type BatchItem struct {
+	TypeID   int32   `json:"TypeID"`
+	TypeName string  `json:"TypeName"`
+	Units    int32   `json:"Units"`
+	BuyPrice float64 `json:"BuyPrice"`
+	SellPrice float64 `json:"SellPrice"`
+	Profit   float64 `json:"Profit"`
+	VolumeM3 float64 `json:"VolumeM3"`
+	TotalM3  float64 `json:"TotalM3"`
+	TotalISK float64 `json:"TotalISK"`
+}
+
+// CargoManifest represents an optimized cargo allocation with totals.
+type CargoManifest struct {
+	Items        []BatchItem `json:"Items"`
+	TotalM3      float64     `json:"TotalM3"`
+	TotalISK     float64     `json:"TotalISK"`
+	TotalProfit  float64     `json:"TotalProfit"`
+	CapacityUsed float64     `json:"CapacityUsed"`
+	BudgetUsed   float64     `json:"BudgetUsed"`
 }
