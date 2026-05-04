@@ -750,6 +750,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/station/trade-states/clear", s.handleAuthClearStationTradeStates)
 	mux.HandleFunc("POST /api/auth/station/cache/reboot", s.handleAuthRebootStationCache)
 	mux.HandleFunc("GET /api/auth/industry/projects", s.handleAuthListIndustryProjects)
+	mux.HandleFunc("POST /api/auth/industry/coverage", s.handleAuthIndustryCoverage)
 	mux.HandleFunc("POST /api/auth/industry/projects", s.handleAuthCreateIndustryProject)
 	mux.HandleFunc("GET /api/auth/industry/projects/{projectID}/snapshot", s.handleAuthIndustryProjectSnapshot)
 	mux.HandleFunc("POST /api/auth/industry/projects/{projectID}/plan/preview", s.handleAuthPreviewIndustryProjectPlan)
